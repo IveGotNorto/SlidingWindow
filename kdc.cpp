@@ -10,11 +10,8 @@
 #include <iostream>
 #include <cmath>
 #include "blowfish.h"
-#define PORT 9235
+#define PORT 9241
 #define SA struct sockaddr
-// The public keys of initiator A and responder B
-#define KEYA 5A7134743777217A25432A462D4A614E
-#define KEYB 68576D597133743677397A2443264629
 using namespace std;
 
 char *recieve_all(int sockfd, long *size) {
@@ -148,8 +145,51 @@ int createSocket() {
 int main() {
 	// Create our network socket
 	int networkSocket = createSocket();
+	string idA = "10.35.195.127";
+	char keyA[33] = "5A7134743777217A25432A462D4A614E";
+	char keyB[33] = "68576D597133743677397A2443264629";
+    string sessionKey = "2939c87950f2420d18c3d3d6b07ab2be";
+	Blowfish bf;
 	
-	Blowfish BF;
+	// Receiving our 1st send of the request and nonceA
+	// Taking in the char array, extracting nonce and request as strings
+	// and converting nonce to int
+	char *sendOneBuffer = (char *)malloc(17);
+	long bufferSize = 17;
+	sendOneBuffer = recieve_all(networkSocket, &bufferSize);
+    // Pull out the request and nonce of A from the first buffer sent.
+	string request(&sendOneBuffer[0], &sendOneBuffer[6]);
+	string nonce(&sendOneBuffer[6], &sendOneBuffer[16]);
+	free(sendOneBuffer);
+
+	// This is our second send from the KDC back to A.
+    // These first few lines of code pack the contents that A will 
+    // Be taking in such as the sessionKey, request, and nonce.
+	char *sendTwoBuffer = (char *)malloc(96);
+	strcat(sendTwoBuffer, sessionKey.c_str());
+	strcat(sendTwoBuffer, request.c_str());
+	strcat(sendTwoBuffer, nonce.c_str());
+    // Then we create the portion we will be sending to B from A
+    // This includes the sessionKey and A's ID
+	char *eKBKsIDa = (char *)malloc(48);
+	strcat(eKBKsIDa, sessionKey.c_str());
+	strcat(eKBKsIDa, idA.c_str());
+    // It is then encrypted using B's key
+	bf.Set_Passwd(keyB);
+	bufferSize = 48;
+	encrypt(bf, &bufferSize, bufferSize, eKBKsIDa);
+    // Concanted onto the contents of what we will be sending to A
+    // Then encrypted once more using A's key
+	strcat(sendTwoBuffer, eKBKsIDa);
+	bf.Set_Passwd(keyA);
+    bufferSize = 96;
+	encrypt(bf, &bufferSize, bufferSize, sendTwoBuffer);
+    // Finally we send that content A to then be decrypted
+	send_all(networkSocket, sendTwoBuffer, &bufferSize);
+
+    // Free our buffers
+    free(eKBKsIDa);
+    free(sendTwoBuffer);
 
 	// Close our network socket
 	close(networkSocket);
