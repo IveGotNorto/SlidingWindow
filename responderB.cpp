@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cmath>
 #include <math.h> 
+#include <string>         
+#include <locale> 
 #include "utilities.h"
 
 int createSocket() {
@@ -73,22 +75,56 @@ int main() {
     string nonceStringB;
     Blowfish bf;
 
-    while(nonceStringB.length() !=10) {
+	bool correctNonceB = false;
+    while(nonceStringB.length() !=10 || !correctNonceB) {
         printf("\nPlease enter a 10-digit Nonce for B: ");
         cin >> nonceStringB;    
+		
+		int numDigits = 0;
+		for (std::string::iterator it=nonceStringB.begin(); it!=nonceStringB.end(); ++it)
+		{
+			
+			if (std::isdigit(*it))
+			  numDigits++;
+			else
+			  break;
+		  
+		}
+		
+		if(numDigits == 10)
+		{
+			correctNonceB = true;
+		}
     }
     nonceB = stol(nonceStringB);
     
-    while(strlen(keyB) == 0){
+	bool correctKeyB = false;
+    while(strlen(keyB) == 0 || !correctKeyB){
+		correctKeyB = false;
         printf("\nPlease enter a Key for B: ");
         string tempB;
         cin >> tempB;
     
+		int numAlphaCharacters = 0;
+		for (std::string::iterator it=tempB.begin(); it!=tempB.end(); ++it)
+		{
+			if (std::isalpha(*it))
+			  numAlphaCharacters++;
+			else
+			  break;
+		  
+		}
+		
+		if(numAlphaCharacters == tempB.length())
+		{
+			correctKeyB = true;
+		}
+		
         if(tempB.length()>32)
         {
             printf("\nKey must be 32 characters or less");
         }
-        else if(tempB.length()<32)
+        else if(tempB.length()<=32)
         {
             for(int z=0;z<tempB.length();z++)
             {

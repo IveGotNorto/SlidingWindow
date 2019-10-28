@@ -70,16 +70,33 @@ int main() {
 
     int networkSocket = createSocket();
 
-    while(strlen(keyA) == 0){
-        printf("\nPlease enter a Key for A: ");
+    bool correctKeyA = false;
+	while(strlen(keyA) == 0 || !correctKeyA){
+		correctKeyA = false;       
+	   printf("\nPlease enter a Key for A: ");
         string tempA;
         cin >> tempA;
 
+		int numAlphaCharacters = 0;
+		for (std::string::iterator it=tempA.begin(); it!=tempA.end(); ++it)
+		{
+			if (std::isalpha(*it))
+			  numAlphaCharacters++;
+			else
+			  break;
+		  
+		}
+		
+		if(numAlphaCharacters == tempA.length())
+		{
+			correctKeyA = true;
+		}
+		
         if(tempA.length()>32)
         {
             printf("\nKey must be 32 characters or less");
         }
-        else if(tempA.length()<32)
+        else if(tempA.length()<=32)
         {
             for(int z=0;z<tempA.length();z++)
             {
@@ -100,17 +117,33 @@ int main() {
     
     }
     
-    while(strlen(keyB) == 0){
-
+	bool correctKeyB = false;
+    while(strlen(keyB) == 0 || !correctKeyB){
+		correctKeyB = false;
         printf("\nPlease enter a Key for B: ");
         string tempB;
         cin >> tempB;
     
+		int numAlphaCharacters = 0;
+		for (std::string::iterator it=tempB.begin(); it!=tempB.end(); ++it)
+		{
+			if (std::isalpha(*it))
+			  numAlphaCharacters++;
+			else
+			  break;
+		  
+		}
+		
+		if(numAlphaCharacters == tempB.length())
+		{
+			correctKeyB = true;
+		}
+		
         if(tempB.length()>32)
         {
             printf("\nKey must be 32 characters or less");
         }
-        else if(tempB.length()<32)
+        else if(tempB.length()<=32)
         {
             for(int z=0;z<tempB.length();z++)
             {
@@ -129,17 +162,33 @@ int main() {
             }
         }
     }
-    
-    while(sessionKey.length() == 0){
-        sessionKey.reserve(32);
+    bool correctKeySession = false;
+    while(sessionKey.length() == 0 || !correctKeySession){
+        correctKeySession = false;
+		sessionKey.reserve(32);
         printf("\nPlease enter a Session Key: ");
         cin >> sessionKey;
     
+		int numAlphaCharacters = 0;
+		for (std::string::iterator it=sessionKey.begin(); it!=sessionKey.end(); ++it)
+		{
+			if (std::isalpha(*it))
+			  numAlphaCharacters++;
+			else
+			  break;
+		  
+		}
+		
+		if(numAlphaCharacters == sessionKey.length())
+		{
+			correctKeySession = true;
+		}
+		
         if(sessionKey.length()>32)
         {
             printf("\nKey must be 32 characters or less");
         }
-        else if(sessionKey.length()<32)
+        else if(sessionKey.length()<=32)
         {
            
             int count=0;

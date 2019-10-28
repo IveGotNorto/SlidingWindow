@@ -1,6 +1,8 @@
 #include <unistd.h> 
 #include <iostream>
 #include <cmath>
+#include <string>         
+#include <locale>  
 #include "utilities.h"
 
 int createSocket(string IP, int port) {
@@ -51,24 +53,56 @@ int main() {
     
     Blowfish bf;
     
-    while(nonceStringA.length() !=10) {
+	bool correctNonceA = false;
+    while(nonceStringA.length() !=10 || !correctNonceA) {
         printf("\nPlease enter a 10-digit Nonce for A: ");
-        cin >> nonceStringA;    
+        cin >> nonceStringA; 
+		
+		int numDigits = 0;
+		for (std::string::iterator it=nonceStringA.begin(); it!=nonceStringA.end(); ++it)
+		{
+			
+			if (std::isdigit(*it))
+			  numDigits++;
+			else
+			  break;
+		  
+		}
+		
+		if(numDigits == 10)
+		{
+			correctNonceA = true;
+		}
     }
     nonceA = stol(nonceStringA);
    
-
-    while(strlen(keyA) == 0){
-        printf("\nPlease enter a Key for A: ");
+	bool correctKeyA = false;
+    while(strlen(keyA) == 0 || !correctKeyA){
+        correctKeyA = false;
+		printf("\nPlease enter a Key for A: ");
         string tempA;
         cin >> tempA;
     
-    
+		int numAlphaCharacters = 0;
+		for (std::string::iterator it=tempA.begin(); it!=tempA.end(); ++it)
+		{
+			if (std::isalpha(*it))
+			  numAlphaCharacters++;
+			else
+			  break;
+		  
+		}
+		
+		if(numAlphaCharacters == tempA.length())
+		{
+			correctKeyA = true;
+		}
+		
         if(tempA.length()>32)
         {
             printf("\nKey must be 32 characters or less");
         }
-        else if(tempA.length()<32)
+        else if(tempA.length()<=32)
         {
             for(int z=0;z<tempA.length();z++)
             {
