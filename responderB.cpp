@@ -108,7 +108,7 @@ int main() {
 		int numAlphaCharacters = 0;
 		for (std::string::iterator it=tempB.begin(); it!=tempB.end(); ++it)
 		{
-			if (std::isalpha(*it))
+			if (std::isalnum(*it))
 			  numAlphaCharacters++;
 			else
 			  break;
