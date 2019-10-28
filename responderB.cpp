@@ -248,20 +248,15 @@ int main() {
                 printf("\n");
             #else 
                 fwrite(cont, *left, 1, outputFile);
+                fclose(outputFile);
             #endif
 
         }
-        
         #if !DEBUG
-            string command = "md5sum ";
-            command.append(fileName);
-
             printf("\nFile transmission completed.\n");
-            // run md5sum
-            system(command.c_str());
-            printf("\n");
             fclose(outputFile);
-        #endif
+        #endif 
+
         free(cont);
         free(block);
         free(left);

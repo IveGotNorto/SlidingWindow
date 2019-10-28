@@ -275,13 +275,7 @@ int main() {
         }
         
         #if !DEBUG
-            string command = "md5sum ";
-            command.append(fileName);
-
             printf("\nFile transmission completed.\n");
-            // run md5sum
-            system(command.c_str());
-            printf("\n");
             fclose(fp);
         #endif
 
