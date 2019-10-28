@@ -25,8 +25,8 @@ typedef unsigned char uint8;
 
 const string ip_thing0 = "10.35.195.46";
 const string ip_thing1 = "10.35.195.47";
-//const string ip_thing1 = "10.35.195.22";
-const string ip_thing2 = "10.35.195.49";
+const string ip_thing2 = "10.35.195.22";
+//const string ip_thing2 = "10.35.195.49";
 
 FILE *getFname (const char *method, char *fileName);
 
