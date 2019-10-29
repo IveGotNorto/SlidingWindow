@@ -69,7 +69,7 @@ int main() {
 		  
 		}
 		
-		if(numDigits == 10)
+		if(numDigits == 10 && nonceStringA.at(0) != '0')
 		{
 			correctNonceA = true;
 		}

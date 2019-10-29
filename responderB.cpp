@@ -91,7 +91,7 @@ int main() {
 		  
 		}
 		
-		if(numDigits == 10)
+		if(numDigits == 10 && nonceStringB.at(0) != '0')
 		{
 			correctNonceB = true;
 		}
