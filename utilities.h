@@ -17,7 +17,7 @@
 #define BSIZE 1024   // Block size in bytes
 #define MAX 56
 
-#define DEBUG 1
+#define DEBUG 0
 
 using namespace std;
 

@@ -245,7 +245,7 @@ int main() {
         sender(bNetworkSocket, &tblock, sizeof(long));
         tleft = htons(tleft);
         sender(bNetworkSocket, &tleft, sizeof(short));
-        
+
         #if !DEBUG
             for (long i = 0; i < block; i++) {
 
@@ -264,7 +264,7 @@ int main() {
             #endif
 
             // Pad to 1024
-            *cont = *cont << (BSIZE - left - 1);
+            *cont = *cont << (BSIZE - left);
             bf.Encrypt(cont, BSIZE);
 
             #if DEBUG

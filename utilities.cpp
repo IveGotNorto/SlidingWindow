@@ -3,15 +3,24 @@
 // Get file name and open file
 FILE *getFname(const char *method, char *fileName) {
     FILE *fp = NULL;
-    
-    if (!strcmp(method, "a")) {
-        remove(fileName);
-    }
 
     while (!strlen(fileName) || !fp) {
         printf("\nPlease enter a filename: ");
         scanf("%s", fileName);
+
         fp = fopen(fileName, method);
+
+        /**
+            Cant think of a more elegant way to do this
+            I dont want to delete the file before the chance
+            to make sure it can be written to.
+        **/
+        if (!strcmp(method, "a") && fp) {
+            fclose(fp);
+            remove(fileName);
+            fp = fopen(fileName, method);
+        }
+
     }
     return fp;
 }
