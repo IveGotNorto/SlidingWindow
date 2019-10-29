@@ -206,20 +206,22 @@ int main() {
 
 	FILE *outputFile;
         #if !DEBUG
-            char fileName[100];
+            char fileName[MAX];
 	    outputFile = getFname("a", &fileName[0]);
 	#endif
 
-        // This loop will never be executed during debugging
-        for (long i = 0; i < *block; i++) {
+        #if !DEBUG
+            for (long i = 0; i < *block; i++) {
 
-            reciever(networkSocket, cont, BSIZE);
-            bf.Decrypt(cont, BSIZE);
-            fwrite(cont, BSIZE, 1, outputFile);
-            *cont = 0;
+                reciever(networkSocket, cont, BSIZE);
+                bf.Decrypt(cont, BSIZE);
+                fwrite(cont, BSIZE, 1, outputFile);
+                *cont = 0;
 
-        }
+            }
+        #endif
 
+        *cont = 0;
         if (*left) {
 
             reciever(networkSocket, cont, BSIZE);
@@ -248,7 +250,6 @@ int main() {
                 printf("\n");
             #else 
                 fwrite(cont, *left, 1, outputFile);
-                fclose(outputFile);
             #endif
 
         }

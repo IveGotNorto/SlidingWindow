@@ -237,22 +237,26 @@ int main() {
         
         long block, tblock;
         block = tblock = size / BSIZE;
-        short left = size % BSIZE;
+        short left, tleft;
+        left = tleft = size % BSIZE;
         
         // Network conversions & send
         tblock = htonl(tblock);
         sender(bNetworkSocket, &tblock, sizeof(long));
-        left = htons(left);
-        sender(bNetworkSocket, &left, sizeof(short));
+        tleft = htons(tleft);
+        sender(bNetworkSocket, &tleft, sizeof(short));
+        
+        #if !DEBUG
+            for (long i = 0; i < block; i++) {
 
-        for (long i = 0; i < block; i++) {
+                 fread(cont, BSIZE, 1, fp);
+                 bf.Encrypt(cont, BSIZE);
+                 sender(bNetworkSocket, cont, BSIZE);
+                 *cont = 0;
+            }
+        #endif
 
-             fread(cont, BSIZE, 1, fp);
-             bf.Encrypt(cont, BSIZE);
-             sender(bNetworkSocket, cont, BSIZE);
-             *cont = 0;
-        }
-
+        *cont = 0;
         if (left) {
 
             #if !DEBUG
@@ -260,7 +264,7 @@ int main() {
             #endif
 
             // Pad to 1024
-            *cont = *cont << (BSIZE - left);
+            *cont = *cont << (BSIZE - left - 1);
             bf.Encrypt(cont, BSIZE);
 
             #if DEBUG

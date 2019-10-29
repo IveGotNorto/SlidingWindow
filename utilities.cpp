@@ -3,12 +3,10 @@
 // Get file name and open file
 FILE *getFname(const char *method, char *fileName) {
     FILE *fp = NULL;
-    /**
-       If the file exists, we need to delete it on an append.
-        This prevents adding to a file that already exists.
-        Might want user validation on this. 
-    **/
-    if (!strcmp(method, "a")) {remove(fileName);};
+    
+    if (!strcmp(method, "a")) {
+        remove(fileName);
+    }
 
     while (!strlen(fileName) || !fp) {
         printf("\nPlease enter a filename: ");
