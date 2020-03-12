@@ -1,21 +1,12 @@
-# KeyExchange
-## CS.452 Operating Systems Lab #1: Key Exchange Application
+# Sliding Window Protocols
+## CS.462 Computer Networks Lab #1: Sliding Window Protocols
 
-The Objective of this project is to practice the concepts of computer security, end-to-end protocol design and implementation.
+The Objective of this project is to perform an extension of Lab #1 created in CS.452 to include the implementation of network error control. 
 
-[Link to pdf specifications.](https://cs.uwec.edu/~tan/priv/www-docs/cs452/Labs/Lab1/lab1.pdf)
+[Link to pdf specifications.](https://cs.uwec.edu/~tan/priv/www-docs/cs462/Labs/project.pdf)
 
-Instructions on how to run this application:
-1. Depending on which mode you wish to use (File transmission or message sending) a debug flag must be flipped in the file utilities.h. Setting this flag to 0 will perform encrypted file transmission, and setting it to 1 will perform encrypted message sends.
-2. Compile all files using the supplied makefile. Do so using the following command: make all
-3. Run KDC on cs.thing0.uwec.edu (10.35.195.46). Do so using the following command: ./kdc
-4. Run ResponderB on cs.thing2.uwec.edu (10.35.195.22). Do so using the following command: ./responderB
-5. Run InitiatorA on cs.this1.uwec.edu (10.35.195.47). Do so using the following command: ./initiatorA
-6. Input all necessary data into InitiatorA, KDC, and ResponderB. InitiatorA will request a Key as well as a nonce. ResponderB will also requst a key and a nonce. KDC will also request both A and B's keys, ensure that the entry of these keys into the KDC matches the keys input to both InitatorA and ResponderB.
-7. Now depending on the debug mode set InitiatorA will now request either a file name or a message to send to responderB. 
+Instructions on how to run this application: 
 
 Contributors:
 @Tylerherrmann - Tyler Herrmann
 @IveGotNorto - Brandon Woodford
-@Mknappskirata - Matt Knapp
-@Jknappskirata - John Knapp
