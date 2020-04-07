@@ -1,32 +1,23 @@
 CC = g++
 CFLAGS  = -std=c++0x -g -Wall
 
-all: responderB kdc initiatorA
+all: server receiver
 
-responderB: responderB.o blowfish.o utilities.o
-	$(CC) $(CFLAGS) -o responderB responderB.o blowfish.o utilities.o
+server: server.o utilities.o
+	$(CC) $(CFLAGS) -o server server.o utilities.o
 
-kdc: kdc.o blowfish.o utilities.o
-	$(CC) $(CFLAGS) -o kdc kdc.o blowfish.o utilities.o
+receiver: receiver.o utilities.o
+	$(CC) $(CFLAGS) -o receiver receiver.o utilities.o
 
-initiatorA: initiatorA.o blowfish.o utilities.o
-	$(CC) $(CFLAGS) -o initiatorA initiatorA.o blowfish.o utilities.o
+server.o: server.cpp
+	$(CC) $(CFLAGS) -c server.cpp
 
-responderB.o: responderB.cpp
-	$(CC) $(CFLAGS) -c responderB.cpp
-
-kdc.o: kdc.cpp
-	$(CC) $(CFLAGS) -c kdc.cpp
-
-initiatorA.o: initiatorA.cpp
-	$(CC) $(CFLAGS) -c initiatorA.cpp
+receiver.o: receiver.cpp
+	$(CC) $(CFLAGS) -c receiver.cpp
 
 
 utilities.o: utilities.cpp utilities.h
 	$(CC) $(CFLAGS) -c utilities.cpp
 
-blowfish.o: blowfish.cpp blowfish.h
-	$(CC) $(CFLAGS) -c blowfish.cpp
-
 clean:
-	$(RM) responderB kdc initiatorA *.o *~ *.swp
+	$(RM) server receiver *.o *~ *.swp
