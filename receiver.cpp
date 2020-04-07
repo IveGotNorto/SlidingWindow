@@ -74,12 +74,13 @@ int main() {
 	if(r = recv(networkSocket, &numParams, sizeof(int), 0) == -1) {
 		perror("recv numParams.");
 	} 
+	numParams = ntohl(numParams);
 	
 	// Create an array to hold all the parameters sent by the server.
-	int params[8];
+	int params[numParams];
 	
 	// Receive the parameters array from the server
-	if(r = recv(networkSocket, params, sizeof(int) * 8, 0) == -1) {
+	if(r = recv(networkSocket, params, sizeof(params), 0) == -1) {
 		perror("recv params.");
 		exit(1);
 	}
