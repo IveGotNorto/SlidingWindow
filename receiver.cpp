@@ -62,17 +62,59 @@ int createSocket() {
         printf("server accepted the client...\n"); 
     }
     return connfd;
+}
+
+void calculateCustomPing(int socket) {
+	int packetSize = 0;
+	int ack = 0;	
+
+	if(reciever(socket, &packetSize, sizeof(int)) < 1) {
+		perror("packet size receive error.");
+		exit(2);
+	}
+	
+	char testPacket[packetSize];
+	
+	for(int i = 0; i != 11; i++) {
+		if(reciever(socket, &testPacket, packetSize) < 1) {
+			perror("Test packet receive error.");
+			// Send a bad ack if receive goes bad
+			send(socket, &ack, sizeof(int), 0);
+			exit(2);
+		} else {
+			ack = 1;
+			if(send(socket, &ack, sizeof(int), 0) < 1) {
+				perror("Ack send error.");
+				exit(2);
+			}	
+		}
+	}
+	
+
 }	
 
 int main() {
 	// Create our network socket
 	int networkSocket = createSocket();
+	int customPing = 0;
 	
+	
+	// Check for if a custom ping-timer is being used
+	if(reciever(networkSocket, &customPing, sizeof(int)) < 1) {
+		perror("Custom ping receive error");
+		exit(2);
+	}
+	
+	// Check if a custom ping has been set, if not perform the ping-calculate timeout
+	if(customPing == 1) {
+		calculateCustomPing(networkSocket);
+	}
+
 	// Receive the number of params being sent by the server
-	int r = 0;
 	int numParams = 0;
-	if(r = recv(networkSocket, &numParams, sizeof(int), 0) == -1) {
+	if(reciever(networkSocket, &numParams, sizeof(int)) < 1) {
 		perror("recv numParams.");
+		exit(2);
 	} 
 	numParams = ntohl(numParams);
 	
@@ -80,13 +122,14 @@ int main() {
 	int params[numParams];
 	
 	// Receive the parameters array from the server
-	if(r = recv(networkSocket, params, sizeof(params), 0) == -1) {
+	if(reciever(networkSocket, params, sizeof(params)) < 1) {
 		perror("recv params.");
-		exit(1);
+		exit(2);
 	}
 
 	printf("The size of the file we'll be transmitting is: %d\n", params[0]);		
 	printf("The size of the packet is: %d\n", params[2]);
 
 	close(networkSocket);
+	return 1;
 }

@@ -1,3 +1,5 @@
+#define _BSD_SOURCE
+#include<sys/time.h>
 #include <iostream>
 #include <string>
 #include <unistd.h>         
@@ -37,16 +39,72 @@ int createSocket(string IP, int port) {
 
 }
 
+double calculateCustomPing(int packetSize, int receiverSocket){
+	float t = 0.125;
+	struct timeval start, end;
+	char testPacket[packetSize];
+	int ack = 0;	
+	double rttm, rtts = 0;	
+
+	// Send packet size to receiver
+	if(send(receiverSocket, &packetSize, sizeof(int), 0) < 1) {
+		perror("Send packet size error.");
+		exit(2);
+	}
+	
+	// Perform our first measurement
+	gettimeofday(&start, NULL);
+	if(send(receiverSocket, testPacket, packetSize, 0) < 1) {
+		perror("Send test packet error.");
+		exit(2);
+	}
+	if(reciever(receiverSocket, &ack, sizeof(int)) < 1) {
+		perror("Receive ack error.");
+		exit(2);
+	}
+	if(ack == 1) {
+		gettimeofday(&end, NULL);
+		rttm = (end.tv_usec - start.tv_usec);
+		rtts = rttm;
+		rtts = (1-t)*rtts + t*rttm;
+	} else {
+		printf("Bad ack\n");
+		exit(2);
+	}
+
+	// Perform a few more sends to get an accurate measurement
+	for(int i = 0; i != 10; i++) {
+		
+		gettimeofday(&start, NULL);
+		if(send(receiverSocket, testPacket, packetSize, 0) < 1) {
+			perror("Send test packet error.");
+			exit(2);
+		}
+		if(reciever(receiverSocket, &ack, sizeof(int)) < 1) {
+			perror("Receive ack error.");
+			exit(2);
+		}
+		if(ack == 1) {
+			gettimeofday(&end, NULL);
+			rttm = (end.tv_usec - start.tv_usec);
+			rtts = (1-t)*rtts + t*rttm;
+		} else {
+			perror("Bad ack");
+			exit(2);
+		}
+		
+	}
+	
+	// Double the measured time
+	// TODO Is this necessary / a good idea to double the measured time?
+	// Is there a better way to calculate the measured time?
+	// Currently using formulas found at: https://www.geeksforgeeks.org/tcp-timers/
+	return rtts * 2; 
+}
+
 int main() {
 	int receiverSocket = createSocket(ip_thing2, PORTREC);	
-	int netProtocol = 0;	
-	int packetSize = 0;
-	int timeout = 0;
-	int menu = 0;	
-	int windowSize = 0;
-	int sequenceBegin = 0;
-	int sequenceEnd = 0;
-	int situationalErrors = 0;	
+	int netProtocol, packetSize, timeout, menu, windowSize, sequenceBegin, sequenceEnd, situationalErrors, customPing;	
 
 	// Get settings to be used for file transmission from user
 	printf("\nDo you wish to use the default set values or input custom values?\n\n");
@@ -54,6 +112,13 @@ int main() {
 	cin >> menu;
 	printf("\n");
 	if(menu == 1) {
+		// Let the receiver know that no ping calculations are needed.
+		if(send(receiverSocket, &customPing, sizeof(int), 0) < 1) {
+			perror("send ping");
+			exit(2);
+		} 
+
+
 		// Set default values here
 		netProtocol = 1;
 		packetSize = 1500;
@@ -66,7 +131,7 @@ int main() {
 		printf("\n");	
 		if(netProtocol > 3 || netProtocol < 1) {
 			printf("Invalid input. Exiting.\n");
-			exit(-1);
+			exit(2);
 		}
 
 		// Get size of packets users wishes to use
@@ -79,7 +144,7 @@ int main() {
 			exit(-1);	
 		}else if(packetSize > 1500) {
 			printf("Invalid packet size. Packet size is greater than MTU of 1500. Exiting.\n");
-			exit(-1);
+			exit(2);
 		}
 
 		// Find if user wants to define timeout, and if so set it.
@@ -90,15 +155,26 @@ int main() {
 
 		if(timeout < 1 || timeout > 2) {
 			printf("Invalid input. Exiting.\n");
-			exit(-1);
+			exit(2);
 		}
 
 		if(timeout == 1) {
-			printf("Input a timeout value (In MS): ");
+			if(send(receiverSocket, &customPing, sizeof(int), 0) < 1) {
+				perror("send ping");
+				exit(2);
+			} 
+
+			printf("Input a timeout value (In Microseconds): ");
 			cin >> timeout;
 		} else {
-			// TODO: Probably will need a function created and called here to figure out the 
-			// oing-based timeouts.
+			customPing = 1;
+			if(send(receiverSocket, &customPing, sizeof(int), 0) < 1) {
+				perror("send ping");
+				exit(2);
+			} 
+			
+			timeout = (int)calculateCustomPing(packetSize, receiverSocket);
+			printf("Calculated timeout using given packet size of %d bytes is: %d microseconds\n", packetSize, timeout);
 		}
 
 		if(netProtocol != 1) {
@@ -108,7 +184,7 @@ int main() {
 			
 	} else {
 		printf("Invalid input. Exiting.");
-		exit(-1);
+		exit(2);
 	}
 
 	// Open the file we are sending and get its size
@@ -137,13 +213,16 @@ int main() {
 	numParams = htonl(numParams);
 	if(sent = send(receiverSocket, &numParams, sizeof(int), 0) == -1) {
 		perror("send numParams"); 
+		exit(2);
 	}
 	
 	// Send the parameters
 	if(sent = send(receiverSocket, params, sizeof(params), 0) == -1) {
 		perror("send params");
+		exit(2);
 	}
 	
-	
+		
 	close(receiverSocket);	
+	return(1);
 }

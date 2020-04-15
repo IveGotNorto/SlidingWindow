@@ -1,7 +1,8 @@
 #ifndef ___UTILITIES_H___
 #define ___UTILITIES_H___
 
-#include <netdb.h> 
+#include <netdb.h>
+#include <time.h> 
 #include <cstdio> 
 #include <cstdlib> 
 #include <string> 
