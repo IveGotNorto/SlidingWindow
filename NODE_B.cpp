@@ -7,9 +7,8 @@ int params[7];
 
 typedef struct {
     cli_swp_state ss;
-    condition full;
-    mutex clear;
-    int items;          // # of items for writing.
+    semaphore full;
+    mutex slide;
     int conn;           // Is client connected?
     int finish;         // Is client finished?
 } thread_data;
@@ -25,14 +24,13 @@ void clientSend (char *frame) {
 
 void *clientListen (void *data) {
 
-    int end;
+    int iFrame;
     uint32 chk, tmpChk;
     char buffer[FULL], tmp[HLEN];
     thread_data *td;
     swp_hdr hdr;
 
     td = (thread_data *) data;
-    end = 0;
 
     while (1) {
 
@@ -41,65 +39,64 @@ void *clientListen (void *data) {
                      &len) != -1
             ) {
             // Strip off header
-            memcpy(&hdr, &buffer, sizeof(swp_hdr));
+            memcpy(&hdr, &buffer[0], sizeof(swp_hdr));
 
             if (hdr.flags == FLAG_HAS_DATA ||
                 hdr.flags == FLAG_END_DATA
                 ) {
 
                 printf("Packet %i recieved\n", hdr.seqNum);
-                
-                pthread_mutex_lock(&td->clear);
-                if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
-                    // Queue member hasnt been validated yet
-                    if(!(td->ss.recvQ[hdr.seqNum % RWS].valid)) {
 
+                pthread_mutex_lock(&td->slide);
+                if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
+    
+                    // Find frame index
+                    iFrame = 0;       
+                    while (hdr.seqNum != td->ss.recvQ[iFrame].ackNum) {
+                       iFrame = (++iFrame) % RWS;
+                    }
+
+                    // Queue member hasnt been validated yet
+                    if(!(td->ss.recvQ[iFrame].valid)) {
+                                      
+                        tmpChk = 0;
+                        chk = 0;
                         // Strip off checksum
                         memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
                         tmpChk = ntohl(tmpChk);
-                        chk = crcFast((const unsigned char *)&buffer[0], MLEN + HLEN);
+                        chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
 
                         // Check checksum values
-                        //if (chk == tmpChk) {
-                        //    printf("Checksum OK\n");
+                        if (chk == tmpChk) {
+                            // Wait for space to put frame
+                            sem_wait(&td->full);  
+
+                            // Clear out frame -- not doing this was creating issues...
+                            memset(td->ss.recvQ[iFrame].msg, 0, MLEN);
+                            // Copy frame data to queue
+                            memcpy(td->ss.recvQ[iFrame].msg, &buffer[HLEN], MLEN);
+                            td->ss.recvQ[iFrame].valid = 1;
+
+                            printf("Checksum OK\n");
                             // Last frame recieved
                             if (hdr.flags == FLAG_END_DATA) {
-                                // Get end point
-                                end = hdr.seqNum % RWS;
                                 // Signal finish
                                 td->finish = 1;
                             }
 
-                            // Store data in recieving queue
-                            memcpy(td->ss.recvQ[hdr.seqNum % RWS].msg, &buffer[HLEN], MLEN);
-                            td->ss.recvQ[hdr.seqNum % RWS].valid = 1;
-                            // Increase item count
-                            td->items++;
-                            
-                       // } else {
-                            
-                       //     printf("Checksum failed\n");
-                       //     printf("EXP: %X, GOT: %X\n", tmpChk, chk);
-                       // }
+                            tmp[0] = hdr.seqNum;
+                            tmp[1] = FLAG_ACK_VALID;
+                            clientSend(&tmp[0]);
+                            printf("Ack %i sent\n", hdr.seqNum);
+        
+                        } else {
+                            printf("Checksum failed\n");
+                            printf("EXP: %X, GOT: %X\n", tmpChk, chk);
+                        }
                     }
-
-                    tmp[0] = hdr.seqNum;
-                    tmp[1] = FLAG_ACK_VALID;
-                    clientSend(&tmp[0]);
-                    printf("Ack %i sent\n", hdr.seqNum);
-                    // Check if recieve queue is full
-                    // or check for a set end point
-                    if (td->items == RWS ||
-                        end && 
-                        end == (td->items - 1)
-                        ) {
-                        printf("Signal write\n");
-                        usleep(200);
-                        pthread_cond_signal(&td->full);
-                    }
-
                 }
-                pthread_mutex_unlock(&td->clear);
+
+                pthread_mutex_unlock(&td->slide);
 
             } else if (hdr.flags == FLAG_CLIENT_JOIN) {
                 // Int's are assumed to be atomic
@@ -149,32 +146,42 @@ void *clientListen (void *data) {
 }
 
 void *clientWriter (void *data) {
-
     FILE *fp;
     thread_data *td;
 
-    fp = fopen("/tmp/testFile.txt", "wb");
+    fp = fopen("/tmp/WoahWhatATest.txt", "wb");
     td = (thread_data *) data;
 
     while (!td->finish) {
-        pthread_mutex_lock(&td->clear);
-        // Wait for the window to fill
-        pthread_cond_wait(&td->full, &td->clear);
-        for (int i=0; i < td->items; i++) {
-            fwrite(td->ss.recvQ[i].msg, MLEN, 1, fp); 
-            memset(td->ss.recvQ[i].msg, 0, FULL);
-            td->ss.recvQ[i].valid = 0;
+
+        // Wait for valid slot to open
+        if (td->ss.recvQ[0].valid) {
+            pthread_mutex_lock(&td->slide);
+            if (fwrite(td->ss.recvQ[0].msg, MLEN, 1, fp) != 1) {
+                perror("write: ");
+            }
+
+            for (int c = 0; c < RWS-1; c++) {
+                *(td->ss.recvQ[c].msg) = *(td->ss.recvQ[c+1].msg);
+                td->ss.recvQ[c].valid = td->ss.recvQ[c+1].valid;
+                td->ss.recvQ[c].ackNum = td->ss.recvQ[c+1].ackNum;
+            }
+
+            memset(td->ss.recvQ[RWS-1].msg, 0, FULL);
+            td->ss.recvQ[RWS-1].valid = 0;
+
+            // Update window size
+            td->ss.FFQ = (++td->ss.FFQ) % SN;
+            td->ss.LFQ = (++td->ss.LFQ) % SN;
+
+            td->ss.recvQ[RWS-1].ackNum = td->ss.LFQ;
+            pthread_mutex_unlock(&td->slide);
+            sem_post(&td->full);
         }
-        // Update window size
-        td->ss.FFQ = (td->ss.FFQ + RWS) % SN;
-        td->ss.LFQ = (td->ss.LFQ + RWS) % SN;
-        td->items = 0;
-        pthread_mutex_unlock(&td->clear);
     }
 
     fclose(fp);
     return NULL;
-
 }
 
 // Join & Exit server
@@ -213,11 +220,9 @@ void clientComm (thread_data *td, uint8 flag) {
 void clientInit (thread_data *td) {
 
     td->conn = 0;
-    td->items = 0;
     td->finish = 0;
     td->ss.FFQ = 0;
 
-    crcInit();
     // Initially set upper bound
     // for window
     td->ss.LFQ = RWS - 1;
@@ -237,12 +242,13 @@ void clientInit (thread_data *td) {
 
     // Initialize client window values
     for (int i = 0; i < RWS; i++) {
-        td->ss.recvQ[i].msg = (char *)malloc(FULL * sizeof(char));
+        td->ss.recvQ[i].msg = (char *)calloc(1, FULL);
         td->ss.recvQ[i].valid = 0;
+        td->ss.recvQ[i].ackNum = i;
     }
     // Initialize thread stuff
-    pthread_mutex_init(&td->clear, NULL);
-    pthread_cond_init(&td->full, NULL);
+    pthread_mutex_init(&td->slide, NULL);
+    sem_init(&td->full, 0, RWS);
 
 }
 
@@ -252,8 +258,8 @@ void clientDestroy (thread_data *td) {
         free(td->ss.recvQ[i].msg);
     }
 
-    pthread_mutex_destroy(&td->clear);
-    pthread_cond_destroy(&td->full);
+    pthread_mutex_destroy(&td->slide);
+    sem_destroy(&td->full);
 
 }
 

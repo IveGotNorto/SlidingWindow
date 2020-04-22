@@ -51,8 +51,11 @@ void createFrame (char *frame, swp_hdr hdr, char *buffer) {
     uint32 chk;
     frame[0] = hdr.seqNum;
     frame[1] = hdr.flags;
+    // Copy message to frame
     memcpy(&frame[2], buffer, MLEN);    
-    chk = htonl(crcFast((const unsigned char *)&frame[0], MLEN + HLEN));
+    // Clear memory space of frame->checksum location
+    chk = htonl(crcSlow((const unsigned char *)&frame[0], MLEN + HLEN));
+    // Copy checksum to frame
     memcpy(&frame[MLEN + HLEN], &chk, sizeof(uint32)); 
 }
 

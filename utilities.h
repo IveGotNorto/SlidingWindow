@@ -15,10 +15,10 @@
 #include <semaphore.h>
 #include <pthread.h>
 #include <signal.h>
-#include<string.h>#include<string.h>#include<string.h>
+#include<string.h>
 
-#define PORTA 9015
-#define PORTB 9016
+#define PORTA 9010
+#define PORTB 9011
 
 #define HLEN 2      // Frame header length
 #define MLEN 1494   // Frame message length
@@ -86,6 +86,7 @@ typedef struct {
 
     struct recvQ_slot {
         uint32 valid;  // Is the message valid?
+        uint32 ackNum;
         Msg msg;
     } recvQ[SWS];
 
