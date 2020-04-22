@@ -44,20 +44,29 @@ void *serverListen (void *data) {
             
             if (hdr.flags == FLAG_ACK_VALID) {
 
-                pthread_mutex_lock(&td->slide);
-                if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
 
-                    i = 0;
-                    // Search for sequence number
-                    while (hdr.seqNum != td->ss.sendQ[i].msg[0]) {
-                        i = (++i) % SWS;
-                    }
+		if(params[0] == 1) {
+		    td->ss.sendQ[td->ss.LFQ].ack = 1;
                     printf("Ack %i recieved\n", hdr.seqNum);
-                    td->ss.sendQ[i].ack = 1;
+		    pthread_mutex_unlock(&td->slide);
+		} else if(params[0] == 2) {
 
-                }
-                pthread_mutex_unlock(&td->slide);
+		} else {
+		    // Selective Repeat
+                    pthread_mutex_lock(&td->slide);
+                    if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
 
+                    	i = 0;
+                    	// Search for sequence number
+                    	while (hdr.seqNum != td->ss.sendQ[i].msg[0]) {
+                            i = (++i) % SWS;
+                    	}
+                    	printf("Ack %i recieved\n", hdr.seqNum);
+                    	td->ss.sendQ[i].ack = 1;
+
+                    }
+                    pthread_mutex_unlock(&td->slide);
+		}
             } else if (hdr.flags == FLAG_CLIENT_JOIN) {
                 // Send the same message back to client
                 pthread_mutex_lock(&td->send);
@@ -85,37 +94,39 @@ void *serverListen (void *data) {
 }
 
 void *serverTimer (void *data) {
-
+    int sawSeqNum = 0;
     int i = 0; // Iterator for timer function
     timeout tmp;
     thread_data *td;
     td = (thread_data *) data; 
 
     while (conn) {
+	        
+        if(!(params[0] == 1) && !(params[0] == 2) ) {
+            // Check if a slide can happen
+            if (td->ss.sendQ[0].ack) {
+                pthread_mutex_lock(&td->slide);
+                for (int c = 0; c < SWS - 1; c++) {
+                    *(td->ss.sendQ[c].msg) = *(td->ss.sendQ[c+1].msg);
+                    td->ss.sendQ[c].ack = td->ss.sendQ[c+1].ack;
+                    td->ss.sendQ[c].start = td->ss.sendQ[c+1].start;
+                }
+                
+                // Reset values of last array position
+                memset(td->ss.sendQ[SWS-1].msg, 0, FULL);
+                td->ss.sendQ[SWS-1].start.tv_sec = 0;
+                td->ss.sendQ[SWS-1].start.tv_usec = 0;
+                td->ss.sendQ[SWS-1].ack = 0;
 
-        // Check if a slide can happen
-        if (td->ss.sendQ[0].ack) {
-            pthread_mutex_lock(&td->slide);
-            for (int c = 0; c < SWS - 1; c++) {
-                *(td->ss.sendQ[c].msg) = *(td->ss.sendQ[c+1].msg);
-                td->ss.sendQ[c].ack = td->ss.sendQ[c+1].ack;
-                td->ss.sendQ[c].start = td->ss.sendQ[c+1].start;
+                // Update the Frame Index
+                td->ss.FI--;             
+                // Update the First Frame Queued
+                td->ss.FFQ = (++td->ss.FFQ) % SN;
+
+                pthread_mutex_unlock(&td->slide);
+                // Signal writer there's a spot open
+                sem_post(&td->empty);
             }
-
-            // Reset values of last array position
-            memset(td->ss.sendQ[SWS-1].msg, 0, FULL);
-            td->ss.sendQ[SWS-1].start.tv_sec = 0;
-            td->ss.sendQ[SWS-1].start.tv_usec = 0;
-            td->ss.sendQ[SWS-1].ack = 0;
-
-            // Update the Frame Index
-            td->ss.FI--;             
-            // Update the First Frame Queued
-            td->ss.FFQ = (++td->ss.FFQ) % SN;
-
-            pthread_mutex_unlock(&td->slide);
-            // Signal writer there's a spot open
-            sem_post(&td->empty);
         }
 
         // See if there is a valid frame in the window
@@ -135,9 +146,9 @@ void *serverTimer (void *data) {
                 // Update time
                 gettimeofday(&td->ss.sendQ[i].start, NULL);
             }
+            i = (++i) % SWS;
+            usleep(100);
         }
-        i = (++i) % SWS;
-        usleep(100);
     }
 
     return NULL;
@@ -161,41 +172,76 @@ void *serverWriter (void *data) {
     fIter = fSize / MLEN; 
 
     while (i <= fIter && conn) {
-        // Check if array is empty
-        sem_wait(&td->empty);    
-        pthread_mutex_lock(&td->slide);
-        // Attach flags for frame
-        hdr.seqNum = td->ss.LFQ;
+        if(params[0] == 1) {	
+            pthread_mutex_lock(&td->slide);
+            // Check if the last frame queue was a 1 or 0
+            if(td->ss.LFQ || i == 0) {
+                td->ss.LFQ = 0;
+                hdr.seqNum = 0;
+            } else {
+                td->ss.LFQ = 1;
+                hdr.seqNum = 1;
+            }
 
-        if (i == fIter) {
-            // last frame
-            hdr.flags = FLAG_END_DATA; 
-            fread(&cont, 1, fLeft, fp);
+            // Check if we are have hit our last frame
+            // And set the appropriate flag
+            // Fill the packet with the appropriate number of bytes	
+            if (i == fIter) {
+                // last frame
+                hdr.flags = FLAG_END_DATA; 
+                fread(&cont, 1, fLeft, fp);
+            } else {
+                hdr.flags = FLAG_HAS_DATA; 
+                fread(&cont, 1, MLEN, fp);
+            }
+
+            createFrame(td->ss.sendQ[td->ss.LFQ].msg, hdr, &cont[0]);
+        
+            // do initial send
+            pthread_mutex_lock(&td->send);
+            serverSend( td->ss.sendQ[td->ss.LFQ].msg );
+            pthread_mutex_unlock(&td->send);
+
+            printf("Packet %i sent\n", hdr.seqNum);
+            gettimeofday(&td->ss.sendQ[td->ss.LFQ].start, NULL);
+            i++;	
+        } else if(params[0] == 2) {
+
         } else {
-            hdr.flags = FLAG_HAS_DATA; 
-            fread(&cont, 1, MLEN, fp);
+            // Check if array is empty
+            sem_wait(&td->empty);    
+            pthread_mutex_lock(&td->slide);
+            // Attach flags for frame
+            hdr.seqNum = td->ss.LFQ;
+
+            if (i == fIter) {
+                // last frame
+                hdr.flags = FLAG_END_DATA; 
+                fread(&cont, 1, fLeft, fp);
+            } else {
+                hdr.flags = FLAG_HAS_DATA; 
+                fread(&cont, 1, MLEN, fp);
+            }
+
+            // Checksum is attached in createFrame
+            createFrame( td->ss.sendQ[td->ss.FI].msg, hdr, &cont[0] );
+
+            // do initial send
+            pthread_mutex_lock(&td->send);
+            serverSend( td->ss.sendQ[td->ss.FI].msg );
+            pthread_mutex_unlock(&td->send);
+
+            printf("Packet %i sent\n", hdr.seqNum);
+            gettimeofday(&td->ss.sendQ[td->ss.FI].start, NULL);
+            td->ss.LFQ = (++td->ss.LFQ) % SN;
+            ++td->ss.FI;    // Frame Index will never go above SWS - 1 
+
+            pthread_mutex_unlock( &td->slide );
+
+            memset(&cont, 0, MLEN);
+            i++;
         }
-
-        // Checksum is attached in createFrame
-        createFrame( td->ss.sendQ[td->ss.FI].msg, hdr, &cont[0] );
-
-        // do initial send
-        pthread_mutex_lock(&td->send);
-        serverSend( td->ss.sendQ[td->ss.FI].msg );
-        pthread_mutex_unlock(&td->send);
-
-        printf("Packet %i sent\n", hdr.seqNum);
-        gettimeofday(&td->ss.sendQ[td->ss.FI].start, NULL);
-        td->ss.LFQ = (++td->ss.LFQ) % SN;
-        ++td->ss.FI;    // Frame Index will never go above SWS - 1 
-
-        pthread_mutex_unlock( &td->slide );
-
-        memset(&cont, 0, MLEN);
-        i++;
     }
-
-    printf("Writer exiting...\n");
 
     fclose(fp);
     return NULL;
@@ -232,7 +278,7 @@ int calculateCustomTimeout(thread_data *td) {
    
     // Loop through and send 50 packets to the client to measure RTT.
     // Perform the calculation to find a smoothed RTT 
-    for(int i = 0; i < 50; i++) {
+    for(int i = 0; i < 10; i++) {
 	// Get current time
 	gettimeofday(&start, NULL);
 	// Send the packet	
@@ -257,7 +303,6 @@ int calculateCustomTimeout(thread_data *td) {
 	// will throw off our RTT calculation
 	if(td->rttBool == 1) {
 	    if(rtts == 0) {
-		printf("Here!\n");
 		gettimeofday(&end, NULL);
 		rttm = (end.tv_usec - start.tv_usec);
 		rtts = rttm;
@@ -270,7 +315,6 @@ int calculateCustomTimeout(thread_data *td) {
 	}
 	td->rttBool = 0;
     }
-    printf("Rtts: %lf\n", rtts);
     return (int) rtts * 2;
 }
 
@@ -287,7 +331,7 @@ void menu(thread_data *td) {
 	// Set default values here
 	netProtocol = 1;
 	packetSize = 1500;
-	timeout = 150;
+	timeout = 350;
 	windowSize = 2000;
 	sequenceBegin = 123;
 	sequenceEnd = 12345;
@@ -427,7 +471,6 @@ void serverInit (thread_data *td) {
     pthread_mutex_init(&td->slide, NULL);
     pthread_mutex_init(&td->send, NULL);
     sem_init(&td->empty, 0, SWS);
-
 }
 
 int main (void) {
