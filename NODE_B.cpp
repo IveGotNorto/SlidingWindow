@@ -10,7 +10,6 @@ typedef struct {
     semaphore full;
     mutex slide;
     int conn;           // Is client connected?
-    int finish;         // Is client finished?
 } thread_data;
 
 // Only send header frames to server
@@ -22,7 +21,7 @@ void clientSend (char *frame) {
     }
 }
 
-void *clientListen (void *data) {
+void *clientListener (void *data) {
 
     int iFrame;
     int sawSeqExp = 0;	// Sequence number we are expecting from NODE_A
@@ -35,162 +34,152 @@ void *clientListen (void *data) {
 
     while (1) {
 
+        chk = 0;
+        tmpChk = 0;
+
         if (recvfrom(sockfd, (char *)buffer, FULL,
                      MSG_WAITALL, ( struct sockaddr *) &servaddr,
                      &len) != -1
             ) {
+
             // Strip off header
             memcpy(&hdr, &buffer[0], sizeof(swp_hdr));
+            printf("Packet %i recieved\n", hdr.seqNum);
+            // Strip off checksum
+            memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
 
-            if (hdr.flags == FLAG_HAS_DATA ||
-                hdr.flags == FLAG_END_DATA
-                ) {
-
-                printf("Packet %i recieved\n", hdr.seqNum);
-                               
-		if(params[0] == 1) {
-		    // Stop and Wait
-		    // Check if the sequence number sent by NODE_A is what we expected
-		    if(hdr.seqNum == sawSeqExp) {		
-                    	
-			pthread_mutex_unlock(&td->slide);
-                    	// Check the validity of the checksum
-			if(chk == tmpChk) {
-			    printf("Checksum OK\n");
-			    
-			    // Check if this is the last packet
-			    if(hdr.flags == FLAG_END_DATA) {
-				td->finish = 1;
-			    }
-			    // Call the writing thread
-                            memcpy(td->ss.recvQ[hdr.seqNum].msg, &buffer[HLEN], MLEN);
-			    
-			    // Send the ACK to NODE_A         	
-                    	    tmp[0] = hdr.seqNum;
-                    	    tmp[1] = FLAG_ACK_VALID;
-                    	    clientSend(&tmp[0]);
-                    	    printf("Ack %i sent\n", hdr.seqNum);
-
-			    if(hdr.seqNum) {
-				sawSeqExp = 0;
-			    } else {
-				sawSeqExp = 1;
-			    }
-
-			} else {
-			    // TODO: Code to respond to bad checksum values
-			    printf("Checksum BAD\n");
-			}
-		    } else {
-			// Check what the sequence number of the lost ACK was and resend it
-			if(sawSeqExp) {
-                    	    tmp[0] = 0;
-                    	    tmp[1] = FLAG_ACK_VALID;
-                    	    clientSend(&tmp[0]);
-                    	    printf("Original Ack lost resending Ack %d\n", 0);
-			} else {
-                    	    tmp[0] = 1;
-                    	    tmp[1] = FLAG_ACK_VALID;
-                    	    clientSend(&tmp[0]);
-                    	    printf("Original Ack lost resending Ack %d\n", 1);
-			}
-			pthread_mutex_unlock(&td->slide);
-		    }
-		} else if(params[0] == 2) {
-		    // Go-Back-N
-		} else {
-
-                    pthread_mutex_lock(&td->slide);
-                    if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
+            tmpChk = ntohl(tmpChk);
+            chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
         
-                        // Find frame index
-                        iFrame = 0;       
-                        while (hdr.seqNum != td->ss.recvQ[iFrame].ackNum) {
-                           iFrame = (++iFrame) % RWS;
+            if (chk == tmpChk) {
+                               
+	        printf("Checksum OK\n");
+
+                if (hdr.flags == FLAG_HAS_DATA ||
+                    hdr.flags == FLAG_END_DATA
+                    ) {
+
+                    if(params[0] == 1) {
+                        // Stop and Wait
+                        // Check if the sequence number sent by NODE_A is what we expected
+                        if(hdr.seqNum == sawSeqExp) {		
+                            
+                            // Wait for space to put frame
+                            sem_wait(&td->full);  
+                            pthread_mutex_unlock(&td->slide);
+                            
+                            // Copy frame data to queue
+                            memcpy(td->ss.recvQ[hdr.seqNum].msg, &buffer[sizeof(swp_hdr)], MLEN);
+
+                            td->ss.recvQ[hdr.seqNum].size = ntohs(hdr.size);
+                            td->ss.recvQ[hdr.seqNum].ackNum = hdr.seqNum;
+                            td->ss.recvQ[hdr.seqNum].flags = hdr.flags;
+                            td->ss.recvQ[hdr.seqNum].valid = 1;
+
+                            pthread_mutex_unlock(&td->slide);
+                            // Send the ACK to NODE_A         	
+                            tmp[0] = hdr.seqNum;
+                            tmp[1] = FLAG_ACK_VALID;
+                            clientSend(&tmp[0]);
+                            printf("Ack %i sent\n", hdr.seqNum);
+
+                            if(hdr.seqNum) {
+                                sawSeqExp = 0;
+                            } else {
+                                sawSeqExp = 1;
+                            }
+
+                        } else {
+                            // Check what the sequence number of the lost ACK was and resend it
+                            if(sawSeqExp) {
+                                tmp[0] = 0;
+                                tmp[1] = FLAG_ACK_VALID;
+                                clientSend(&tmp[0]);
+                                printf("Original Ack lost resending Ack %d\n", 0);
+                            } else {
+                                tmp[0] = 1;
+                                tmp[1] = FLAG_ACK_VALID;
+                                clientSend(&tmp[0]);
+                                printf("Original Ack lost resending Ack %d\n", 1);
+                            }
                         }
+                    } else if(params[0] == 2) {
+                        // Go-Back-N
+                    } else {
 
-                        // Queue member hasnt been validated yet
-                        if(!(td->ss.recvQ[iFrame].valid)) {
-                                          
-                            tmpChk = 0;
-                            chk = 0;
-                            // Strip off checksum
-                            memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
-                            // Strip off checksum
-                            memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
-                            tmpChk = ntohl(tmpChk);
-                            chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
+                        pthread_mutex_lock(&td->slide);
+                        if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
+            
+                            // Find frame index
+                            iFrame = 0;       
+                            while (hdr.seqNum != td->ss.recvQ[iFrame].ackNum) {
+                               iFrame = (++iFrame) % RWS;
+                            }
 
-                            // Check checksum values
-                            if (chk == tmpChk) {
+                            // Queue member hasnt been validated yet
+                            if(!(td->ss.recvQ[iFrame].valid)) {
+                                
                                 // Wait for space to put frame
                                 sem_wait(&td->full);  
-
-                                // Clear out frame -- not doing this was creating issues...
-                                memset(td->ss.recvQ[iFrame].msg, 0, MLEN);
                                 // Copy frame data to queue
-                                memcpy(td->ss.recvQ[iFrame].msg, &buffer[HLEN], MLEN);
-                                td->ss.recvQ[iFrame].valid = 1;
+                                memcpy(td->ss.recvQ[iFrame].msg, &buffer[sizeof(swp_hdr)], MLEN);
 
-                                printf("Checksum OK\n");
-                                // Last frame recieved
-                                if (hdr.flags == FLAG_END_DATA) {
-                                    // Signal finish
-                                    td->finish = 1;
-                                }
+                                td->ss.recvQ[iFrame].size = ntohs(hdr.size);
+                                td->ss.recvQ[iFrame].ackNum = hdr.seqNum;
+                                td->ss.recvQ[iFrame].flags = hdr.flags;
+                                td->ss.recvQ[iFrame].valid = 1;
 
                                 tmp[0] = hdr.seqNum;
                                 tmp[1] = FLAG_ACK_VALID;
                                 clientSend(&tmp[0]);
                                 printf("Ack %i sent\n", hdr.seqNum);
-            
-                            } else {
-                                printf("Checksum failed\n");
-                                printf("EXP: %X, GOT: %X\n", tmpChk, chk);
+                
                             }
                         }
+                        pthread_mutex_unlock(&td->slide);
                     }
 
-                    pthread_mutex_unlock(&td->slide);
+                } else if (hdr.flags == FLAG_SERVER_RTT) {
+                    // Strip off checksum
+                    memcpy(&tmpChk, &buffer[MLEN + HLEN], sizeof(uint32));
+                    tmpChk = ntohl(tmpChk);
+                    chk = crcFast((const unsigned char *)&buffer[0], MLEN + HLEN);
+                    // Check the checksum, if good send the response to the server.
+                    if (chk == tmpChk) {
+                        printf("RTT Packet Checksum good, sending ACK response.\n");
+                        tmp[1] = FLAG_CLIENT_RTT;
+                        clientSend(&tmp[0]);
+                    }
+                } else if (hdr.flags == FLAG_SERVER_PARAMS) {
+                    // Receive the parameter values from NODE_A
+                    char paramBuffer[(sizeof(params) * sizeof(int)) + 8];
+                    memcpy(&paramBuffer, &buffer[HLEN], sizeof(paramBuffer));
+                    
+                    // Use delimited values to cut out and convert strings to int values
+                    // Then store those values into Params int array			
+                    size_t pos = 0;
+                    string paramString(paramBuffer);	
+                    string delimiter = ".";				
+                    int i = 0;			
+                    while((pos = paramString.find(delimiter)) != string::npos) {
+                        params[i] = stoi(paramString.substr(0, pos), nullptr, 10);
+                        paramString.erase(0, pos + delimiter.length());
+                        i++;
+                    }
 
+                } else if (hdr.flags == FLAG_CLIENT_JOIN) {
+                    // Int's are assumed to be atomic
+                    td->conn = 1;
+                } else if (hdr.flags == FLAG_CLIENT_EXIT) {
+                    td->conn = 0;
                 }
 
-            } else if (hdr.flags == FLAG_CLIENT_JOIN) {
-                // Int's are assumed to be atomic
-                td->conn = 1;
-            } else if (hdr.flags == FLAG_CLIENT_EXIT) {
-                td->conn = 0;
-            } else if (hdr.flags == FLAG_SERVER_RTT) {
-            	// Strip off checksum
-                memcpy(&tmpChk, &buffer[MLEN + HLEN], sizeof(uint32));
-                tmpChk = ntohl(tmpChk);
-                chk = crcFast((const unsigned char *)&buffer[0], MLEN + HLEN);
-                // Check the checksum, if good send the response to the server.
-		if (chk == tmpChk) {
-		    printf("RTT Packet Checksum good, sending ACK response.\n");
-		    tmp[1] = FLAG_CLIENT_RTT;
-		    clientSend(&tmp[0]);
-		}
-            } else if (hdr.flags == FLAG_SERVER_PARAMS) {
-		// Receive the parameter values from NODE_A
-		char paramBuffer[(sizeof(params) * sizeof(int)) + 8];
-		memcpy(&paramBuffer, &buffer[HLEN], sizeof(paramBuffer));
-		
-		// Use delimited values to cut out and convert strings to int values
-		// Then store those values into Params int array			
-		size_t pos = 0;
-		string paramString(paramBuffer);	
-		string delimiter = ".";				
-		int i = 0;			
-		while((pos = paramString.find(delimiter)) != string::npos) {
-		    params[i] = stoi(paramString.substr(0, pos), nullptr, 10);
-		    paramString.erase(0, pos + delimiter.length());
-		    i++;
-		}
-	    }
+            } else {
+                printf("Checksum failed\n");
+            }
 
             // Clear buffer
-            memset(&buffer, 0, FULL);
+            memset(&buffer[0], 0, FULL);
 
         } else {
             perror("recvfrom:");
@@ -203,6 +192,8 @@ void *clientListen (void *data) {
 }
 
 void *clientWriter (void *data) {
+
+    int end;
     FILE *fp;
     thread_data *td;
     int saw = 0;
@@ -210,7 +201,9 @@ void *clientWriter (void *data) {
     fp = fopen("/tmp/WoahWhatATest.txt", "wb");
     td = (thread_data *) data;
 
-    while (!td->finish) {
+    end = 0;
+
+    while (!end) {
 
 	if(params[0] == 1) { 
             // Wait a message to reach the front of queue
@@ -233,30 +226,42 @@ void *clientWriter (void *data) {
 
 	} else {
 
+            // Wait for valid slot to open
             if (td->ss.recvQ[0].valid) {
                 pthread_mutex_lock(&td->slide);
-                if (fwrite(td->ss.recvQ[0].msg, MLEN, 1, fp) != 1) {
+                if (fwrite(td->ss.recvQ[0].msg, td->ss.recvQ[0].size, 1, fp) != 1) {
                     perror("write: ");
                 }
+                
+                if (td->ss.recvQ[0].flags == FLAG_END_DATA) {
+                    end = 1;
+                } else {
 
-                for (int c = 0; c < RWS-1; c++) {
-                    *(td->ss.recvQ[c].msg) = *(td->ss.recvQ[c+1].msg);
-                    td->ss.recvQ[c].valid = td->ss.recvQ[c+1].valid;
-                    td->ss.recvQ[c].ackNum = td->ss.recvQ[c+1].ackNum;
+                    for (int c = 0; c < RWS-1; c++) {
+                        memcpy(td->ss.recvQ[c].msg, td->ss.recvQ[c+1].msg, MLEN);
+                        td->ss.recvQ[c].valid = td->ss.recvQ[c+1].valid;
+                        td->ss.recvQ[c].ackNum = td->ss.recvQ[c+1].ackNum;
+                        td->ss.recvQ[c].size = td->ss.recvQ[c+1].size;
+                        td->ss.recvQ[c].flags = td->ss.recvQ[c+1].flags;
+                    }
+
+                    memset(td->ss.recvQ[RWS-1].msg, 0, MLEN);
+                    td->ss.recvQ[RWS-1].valid = 0;
+                    td->ss.recvQ[RWS+1].flags = 0;
+                    td->ss.recvQ[RWS+1].size = 0;
+
+                    // Update window size
+                    td->ss.FFQ = (++td->ss.FFQ) % SN;
+                    td->ss.LFQ = (++td->ss.LFQ) % SN;
+
+                    td->ss.recvQ[RWS-1].ackNum = td->ss.LFQ;
                 }
-
-                memset(td->ss.recvQ[RWS-1].msg, 0, FULL);
-                td->ss.recvQ[RWS-1].valid = 0;
-
-                // Update window size
-                td->ss.FFQ = (++td->ss.FFQ) % SN;
-                td->ss.LFQ = (++td->ss.LFQ) % SN;
-
-                td->ss.recvQ[RWS-1].ackNum = td->ss.LFQ;
                 pthread_mutex_unlock(&td->slide);
                 sem_post(&td->full);
             }
+
 	}
+        
     }
 
     fclose(fp);
@@ -299,7 +304,6 @@ void clientComm (thread_data *td, uint8 flag) {
 void clientInit (thread_data *td) {
 
     td->conn = 0;
-    td->finish = 0;
     td->ss.FFQ = 0;
 
     // Initially set upper bound
@@ -321,9 +325,11 @@ void clientInit (thread_data *td) {
 
     // Initialize client window values
     for (int i = 0; i < RWS; i++) {
-        td->ss.recvQ[i].msg = (char *)calloc(1, FULL);
-        td->ss.recvQ[i].valid = 0;
+        td->ss.recvQ[i].msg = (char *)malloc(MLEN);
         td->ss.recvQ[i].ackNum = i;
+        td->ss.recvQ[i].valid = 0;
+        td->ss.recvQ[i].flags = 0;
+        td->ss.recvQ[i].size = 0;
     }
     // Initialize thread stuff
     pthread_mutex_init(&td->slide, NULL);
@@ -350,32 +356,34 @@ int main (void) {
 
     clientInit(&td);
 
-    // Create writer
-    n = pthread_create(&threads[0], NULL, clientWriter, (void *)&td);
-    if (n) {
-        printf("Error: Unable to create writer thread.\n");
-        exit(-1);
-    }
-
     // Create listener
-    n = pthread_create(&threads[1], NULL, clientListen, (void *)&td);
+    n = pthread_create(&threads[1], NULL, clientListener, (void *)&td);
     if (n) {
         printf("Error: Unable to create listener thread.\n");
         exit(-1);
     }
 
+    // Communicate to server
     clientComm(&td, FLAG_CLIENT_JOIN); 
 
-    if (td.conn != 0) {
+    if (td.conn == 1) {
+
+        // Create writer
+        n = pthread_create(&threads[0], NULL, clientWriter, (void *)&td);
+        if (n) {
+            printf("Error: Unable to create writer thread.\n");
+            exit(-1);
+        }
+
         printf("...connected.\n"); 
         pthread_join(threads[0], NULL);
         clientComm(&td, FLAG_CLIENT_EXIT);
         if (td.conn == 0) {
             printf("...exited.\n"); 
+        } else {
+            printf("...failed.\n");
         }
-    }
-
-    if (!td.finish) {
+    } else {
         printf("...failed.\n");
     }
 

@@ -20,8 +20,8 @@
 #define PORTA 9010
 #define PORTB 9011
 
-#define HLEN 2      // Frame header length
-#define MLEN 1494   // Frame message length
+#define HLEN 4      // Frame header length
+#define MLEN 1492   // Frame message length
 #define FULL 1500   // Total frame size
 
 #define NUM_THREADS 5
@@ -63,6 +63,7 @@ const uint32 SN = 32;
 typedef struct {
     uint8 seqNum;       // Sequence number of frame
     uint8 flags;        // Additional 8 bits of flags
+    uint16 size;        // Size of data -- not including header and checksum
 } swp_hdr;
 
 typedef struct {
@@ -72,6 +73,7 @@ typedef struct {
     uint32 LFQ;      // Last Frame Queued
 
     struct sendQ_slot {
+        uint16 size;
         uint32 ack;
         Msg msg;
         timeout start;
@@ -85,9 +87,11 @@ typedef struct {
     uint32 LFQ;      // Last Frame Queued
 
     struct recvQ_slot {
-        uint32 valid;  // Is the message valid?
-        uint32 ackNum;
-        Msg msg;
+        uint8 ackNum;   // Identical to Sequence Number
+        uint8 flags;    // Flags for checking data
+        uint16 size;    // Write size of data
+        uint32 valid;   // Is the message valid?
+        Msg msg;        // Data
     } recvQ[SWS];
 
 } cli_swp_state;

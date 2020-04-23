@@ -94,28 +94,35 @@ void *serverListen (void *data) {
 }
 
 void *serverTimer (void *data) {
-    int sawSeqNum = 0;
-    int i = 0; // Iterator for timer function
+
+    int i;
+    int sawSeqNum;
     timeout tmp;
     thread_data *td;
     td = (thread_data *) data; 
 
+    i = 0;
+    sawSeqNum = 0;
+
     while (conn) {
 	        
         if(!(params[0] == 1) && !(params[0] == 2) ) {
+        
             // Check if a slide can happen
             if (td->ss.sendQ[0].ack) {
                 pthread_mutex_lock(&td->slide);
                 for (int c = 0; c < SWS - 1; c++) {
-                    *(td->ss.sendQ[c].msg) = *(td->ss.sendQ[c+1].msg);
-                    td->ss.sendQ[c].ack = td->ss.sendQ[c+1].ack;
+                    memcpy(td->ss.sendQ[c].msg, td->ss.sendQ[c+1].msg, FULL);
                     td->ss.sendQ[c].start = td->ss.sendQ[c+1].start;
+                    td->ss.sendQ[c].size = td->ss.sendQ[c+1].size;
+                    td->ss.sendQ[c].ack = td->ss.sendQ[c+1].ack;
                 }
-                
+
                 // Reset values of last array position
                 memset(td->ss.sendQ[SWS-1].msg, 0, FULL);
                 td->ss.sendQ[SWS-1].start.tv_sec = 0;
                 td->ss.sendQ[SWS-1].start.tv_usec = 0;
+                td->ss.sendQ[SWS-1].size = 0;
                 td->ss.sendQ[SWS-1].ack = 0;
 
                 // Update the Frame Index
@@ -161,7 +168,8 @@ void *serverWriter (void *data) {
     FILE *fp;
     swp_hdr hdr;
     thread_data *td;
-    uint64 fSize, fIter, fLeft;
+    uint16 fLeft;
+    uint64 fSize, fIter;
     char buffer[MLEN], cont[MLEN];
 
     i = 0;
@@ -215,16 +223,17 @@ void *serverWriter (void *data) {
             hdr.seqNum = td->ss.LFQ;
 
             if (i == fIter) {
-                // last frame
                 hdr.flags = FLAG_END_DATA; 
                 fread(&cont, 1, fLeft, fp);
+                hdr.size = htons(fLeft);
             } else {
                 hdr.flags = FLAG_HAS_DATA; 
                 fread(&cont, 1, MLEN, fp);
+                hdr.size = htons(MLEN);
             }
 
             // Checksum is attached in createFrame
-            createFrame( td->ss.sendQ[td->ss.FI].msg, hdr, &cont[0] );
+            createFrame(td->ss.sendQ[td->ss.FI].msg, hdr, &cont[0]);
 
             // do initial send
             pthread_mutex_lock(&td->send);
@@ -238,7 +247,7 @@ void *serverWriter (void *data) {
 
             pthread_mutex_unlock( &td->slide );
 
-            memset(&cont, 0, MLEN);
+            memset(&cont[0], 0, MLEN);
             i++;
         }
     }
@@ -464,6 +473,7 @@ void serverInit (thread_data *td) {
         td->ss.sendQ[i].msg = (char *)malloc(FULL);
         td->ss.sendQ[i].start.tv_sec = 0;
         td->ss.sendQ[i].start.tv_usec = 0;
+        td->ss.sendQ[i].size = 0;
         td->ss.sendQ[i].ack = 0;
     }
 
