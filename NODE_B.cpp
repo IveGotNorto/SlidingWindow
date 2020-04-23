@@ -10,7 +10,6 @@ typedef struct {
     semaphore full;
     mutex slide;
     int conn;           // Is client connected?
-    int finish;         // Is client finished?
 } thread_data;
 
 // Only send header frames to server
@@ -34,106 +33,102 @@ void *clientListen (void *data) {
 
     while (1) {
 
+        chk = 0;
+        tmpChk = 0;
+
         if (recvfrom(sockfd, (char *)buffer, FULL,
                      MSG_WAITALL, ( struct sockaddr *) &servaddr,
                      &len) != -1
             ) {
+
             // Strip off header
             memcpy(&hdr, &buffer[0], sizeof(swp_hdr));
+            printf("Packet %i recieved\n", hdr.seqNum);
+            // Strip off checksum
+            memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
 
-            if (hdr.flags == FLAG_HAS_DATA ||
-                hdr.flags == FLAG_END_DATA
-                ) {
+            tmpChk = ntohl(tmpChk);
+            chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
+        
+            if (chk == tmpChk) {
 
-                printf("Packet %i recieved\n", hdr.seqNum);
+                printf("Checksum OK\n");
 
-                pthread_mutex_lock(&td->slide);
-                if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
-    
-                    // Find frame index
-                    iFrame = 0;       
-                    while (hdr.seqNum != td->ss.recvQ[iFrame].ackNum) {
-                       iFrame = (++iFrame) % RWS;
-                    }
+                if (hdr.flags == FLAG_HAS_DATA ||
+                    hdr.flags == FLAG_END_DATA 
+                    ){
 
-                    // Queue member hasnt been validated yet
-                    if(!(td->ss.recvQ[iFrame].valid)) {
-                                      
-                        tmpChk = 0;
-                        chk = 0;
-                        // Strip off checksum
-                        memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
-                        tmpChk = ntohl(tmpChk);
-                        chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
+                    pthread_mutex_lock(&td->slide);
+                    if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
+        
+                        // Find frame index
+                        iFrame = 0;       
+                        while (hdr.seqNum != td->ss.recvQ[iFrame].ackNum) {
+                           iFrame = (++iFrame) % RWS;
+                        }
 
-                        // Check checksum values
-                        if (chk == tmpChk) {
+                        // Queue member hasnt been validated yet
+                        if(!(td->ss.recvQ[iFrame].valid)) {
+                            
                             // Wait for space to put frame
                             sem_wait(&td->full);  
-
-                            // Clear out frame -- not doing this was creating issues...
-                            memset(td->ss.recvQ[iFrame].msg, 0, MLEN);
                             // Copy frame data to queue
-                            memcpy(td->ss.recvQ[iFrame].msg, &buffer[HLEN], MLEN);
-                            td->ss.recvQ[iFrame].valid = 1;
+                            memcpy(td->ss.recvQ[iFrame].msg, &buffer[sizeof(swp_hdr)], MLEN);
 
-                            printf("Checksum OK\n");
-                            // Last frame recieved
-                            if (hdr.flags == FLAG_END_DATA) {
-                                // Signal finish
-                                td->finish = 1;
-                            }
+                            td->ss.recvQ[iFrame].size = ntohs(hdr.size);
+                            td->ss.recvQ[iFrame].ackNum = hdr.seqNum;
+                            td->ss.recvQ[iFrame].flags = hdr.flags;
+                            td->ss.recvQ[iFrame].valid = 1;
 
                             tmp[0] = hdr.seqNum;
                             tmp[1] = FLAG_ACK_VALID;
                             clientSend(&tmp[0]);
                             printf("Ack %i sent\n", hdr.seqNum);
-        
-                        } else {
-                            printf("Checksum failed\n");
-                            printf("EXP: %X, GOT: %X\n", tmpChk, chk);
+            
                         }
                     }
-                }
+                    pthread_mutex_unlock(&td->slide);
 
-                pthread_mutex_unlock(&td->slide);
+                } else if (hdr.flags == FLAG_SERVER_RTT) {
+                    // Strip off checksum
+                    memcpy(&tmpChk, &buffer[MLEN + HLEN], sizeof(uint32));
+                    tmpChk = ntohl(tmpChk);
+                    chk = crcFast((const unsigned char *)&buffer[0], MLEN + HLEN);
+                    // Check the checksum, if good send the response to the server.
+                    if (chk == tmpChk) {
+                        printf("RTT Packet Checksum good, sending ACK response.\n");
+                        tmp[1] = FLAG_CLIENT_RTT;
+                        clientSend(&tmp[0]);
+                    }
+                } else if (hdr.flags == FLAG_SERVER_PARAMS) {
+                    // Receive the parameter values from NODE_A
+                    char paramBuffer[(sizeof(params) * sizeof(int)) + 8];
+                    memcpy(&paramBuffer, &buffer[HLEN], sizeof(paramBuffer));
+                    
+                    // Use delimited values to cut out and convert strings to int values
+                    // Then store those values into Params int array			
+                    size_t pos = 0;
+                    string paramString(paramBuffer);	
+                    string delimiter = ".";				
+                    int i = 0;			
+                    while((pos = paramString.find(delimiter)) != string::npos) {
+                        params[i] = stoi(paramString.substr(0, pos), nullptr, 10);
+                        paramString.erase(0, pos + delimiter.length());
+                        i++;
+                    }
+                }
 
             } else if (hdr.flags == FLAG_CLIENT_JOIN) {
                 // Int's are assumed to be atomic
                 td->conn = 1;
             } else if (hdr.flags == FLAG_CLIENT_EXIT) {
                 td->conn = 0;
-            } else if (hdr.flags == FLAG_SERVER_RTT) {
-            	// Strip off checksum
-                memcpy(&tmpChk, &buffer[MLEN + HLEN], sizeof(uint32));
-                tmpChk = ntohl(tmpChk);
-                chk = crcFast((const unsigned char *)&buffer[0], MLEN + HLEN);
-                // Check the checksum, if good send the response to the server.
-		if (chk == tmpChk) {
-		    printf("RTT Packet Checksum good, sending ACK response.\n");
-		    tmp[1] = FLAG_CLIENT_RTT;
-		    clientSend(&tmp[0]);
-		}
-            } else if (hdr.flags == FLAG_SERVER_PARAMS) {
-		// Receive the parameter values from NODE_A
-		char paramBuffer[(sizeof(params) * sizeof(int)) + 8];
-		memcpy(&paramBuffer, &buffer[HLEN], sizeof(paramBuffer));
-		
-		// Use delimited values to cut out and convert strings to int values
-		// Then store those values into Params int array			
-		size_t pos = 0;
-		string paramString(paramBuffer);	
-		string delimiter = ".";				
-		int i = 0;			
-		while((pos = paramString.find(delimiter)) != string::npos) {
-		    params[i] = stoi(paramString.substr(0, pos), nullptr, 10);
-		    paramString.erase(0, pos + delimiter.length());
-		    i++;
-		}
-	    }
+            } else {
+                printf("Checksum failed\n");
+            }
 
             // Clear buffer
-            memset(&buffer, 0, FULL);
+            memset(&buffer[0], 0, FULL);
 
         } else {
             perror("recvfrom:");
