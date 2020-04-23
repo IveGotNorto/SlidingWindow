@@ -146,35 +146,48 @@ void *clientListen (void *data) {
 }
 
 void *clientWriter (void *data) {
+
+    int end;
     FILE *fp;
     thread_data *td;
 
     fp = fopen("/tmp/WoahWhatATest.txt", "wb");
     td = (thread_data *) data;
 
-    while (!td->finish) {
+    end = 0;
+
+    while (!end) {
 
         // Wait for valid slot to open
         if (td->ss.recvQ[0].valid) {
             pthread_mutex_lock(&td->slide);
-            if (fwrite(td->ss.recvQ[0].msg, MLEN, 1, fp) != 1) {
+            if (fwrite(td->ss.recvQ[0].msg, td->ss.recvQ[0].size, 1, fp) != 1) {
                 perror("write: ");
             }
+            
+            if (td->ss.recvQ[0].flags == FLAG_END_DATA) {
+                end = 1;
+            } else {
 
-            for (int c = 0; c < RWS-1; c++) {
-                *(td->ss.recvQ[c].msg) = *(td->ss.recvQ[c+1].msg);
-                td->ss.recvQ[c].valid = td->ss.recvQ[c+1].valid;
-                td->ss.recvQ[c].ackNum = td->ss.recvQ[c+1].ackNum;
+                for (int c = 0; c < RWS-1; c++) {
+                    memcpy(td->ss.recvQ[c].msg, td->ss.recvQ[c+1].msg, MLEN);
+                    td->ss.recvQ[c].valid = td->ss.recvQ[c+1].valid;
+                    td->ss.recvQ[c].ackNum = td->ss.recvQ[c+1].ackNum;
+                    td->ss.recvQ[c].size = td->ss.recvQ[c+1].size;
+                    td->ss.recvQ[c].flags = td->ss.recvQ[c+1].flags;
+                }
+
+                memset(td->ss.recvQ[RWS-1].msg, 0, MLEN);
+                td->ss.recvQ[RWS-1].valid = 0;
+                td->ss.recvQ[RWS+1].flags = 0;
+                td->ss.recvQ[RWS+1].size = 0;
+
+                // Update window size
+                td->ss.FFQ = (++td->ss.FFQ) % SN;
+                td->ss.LFQ = (++td->ss.LFQ) % SN;
+
+                td->ss.recvQ[RWS-1].ackNum = td->ss.LFQ;
             }
-
-            memset(td->ss.recvQ[RWS-1].msg, 0, FULL);
-            td->ss.recvQ[RWS-1].valid = 0;
-
-            // Update window size
-            td->ss.FFQ = (++td->ss.FFQ) % SN;
-            td->ss.LFQ = (++td->ss.LFQ) % SN;
-
-            td->ss.recvQ[RWS-1].ackNum = td->ss.LFQ;
             pthread_mutex_unlock(&td->slide);
             sem_post(&td->full);
         }
@@ -220,7 +233,6 @@ void clientComm (thread_data *td, uint8 flag) {
 void clientInit (thread_data *td) {
 
     td->conn = 0;
-    td->finish = 0;
     td->ss.FFQ = 0;
 
     // Initially set upper bound
@@ -242,9 +254,11 @@ void clientInit (thread_data *td) {
 
     // Initialize client window values
     for (int i = 0; i < RWS; i++) {
-        td->ss.recvQ[i].msg = (char *)calloc(1, FULL);
-        td->ss.recvQ[i].valid = 0;
+        td->ss.recvQ[i].msg = (char *)malloc(MLEN);
         td->ss.recvQ[i].ackNum = i;
+        td->ss.recvQ[i].valid = 0;
+        td->ss.recvQ[i].flags = 0;
+        td->ss.recvQ[i].size = 0;
     }
     // Initialize thread stuff
     pthread_mutex_init(&td->slide, NULL);
@@ -271,13 +285,6 @@ int main (void) {
 
     clientInit(&td);
 
-    // Create writer
-    n = pthread_create(&threads[0], NULL, clientWriter, (void *)&td);
-    if (n) {
-        printf("Error: Unable to create writer thread.\n");
-        exit(-1);
-    }
-
     // Create listener
     n = pthread_create(&threads[1], NULL, clientListen, (void *)&td);
     if (n) {
@@ -285,18 +292,27 @@ int main (void) {
         exit(-1);
     }
 
+    // Communicate to server
     clientComm(&td, FLAG_CLIENT_JOIN); 
 
-    if (td.conn != 0) {
+    if (td.conn == 1) {
+
+        // Create writer
+        n = pthread_create(&threads[0], NULL, clientWriter, (void *)&td);
+        if (n) {
+            printf("Error: Unable to create writer thread.\n");
+            exit(-1);
+        }
+
         printf("...connected.\n"); 
         pthread_join(threads[0], NULL);
         clientComm(&td, FLAG_CLIENT_EXIT);
         if (td.conn == 0) {
             printf("...exited.\n"); 
+        } else {
+            printf("...failed.\n");
         }
-    }
-
-    if (!td.finish) {
+    } else {
         printf("...failed.\n");
     }
 
