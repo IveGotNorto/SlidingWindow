@@ -1,7 +1,7 @@
 #include "utilities.h"
 	
 int params[7];
-int sockfd, conn, leave; 
+int sockfd, conn; 
 pthread_t threads[NUM_THREADS];
 unsigned int len;
 struct sockaddr_in servaddr, cliaddr; 
@@ -33,7 +33,7 @@ void *serverListen (void *data) {
     td = (thread_data *) data; 
     len = sizeof(cliaddr);
 
-    while (!leave) {
+    while (1) {
         // Get ACKS
         if (recvfrom(sockfd, (char *)buffer, HLEN,  
                      MSG_WAITALL, (struct sockaddr *) &cliaddr, 
@@ -44,20 +44,31 @@ void *serverListen (void *data) {
             
             if (hdr.flags == FLAG_ACK_VALID) {
 
-                pthread_mutex_lock(&td->slide);
-                if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
 
-                    i = 0;
-                    // Search for sequence number
-                    while (hdr.seqNum != td->ss.sendQ[i].msg[0]) {
-                        i = (++i) % SWS;
+		if(params[0] == 1) {
+		    if(hdr.seqNum == td->ss.LFQ) {
+		    	td->ss.sendQ[td->ss.LFQ].ack = 1;
+                    	printf("Ack %i recieved\n", hdr.seqNum);
+		    	pthread_mutex_unlock(&td->slide);
+		    }
+		} else if(params[0] == 2) {
+
+		} else {
+		    // Selective Repeat
+                    pthread_mutex_lock(&td->slide);
+                    if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
+
+                    	i = 0;
+                    	// Search for sequence number
+                    	while (hdr.seqNum != td->ss.sendQ[i].msg[0]) {
+                            i = (++i) % SWS;
+                    	}
+                    	printf("Ack %i recieved\n", hdr.seqNum);
+                    	td->ss.sendQ[i].ack = 1;
+
                     }
-                    printf("Ack %i recieved\n", hdr.seqNum);
-                    td->ss.sendQ[i].ack = 1;
-
-                }
-                pthread_mutex_unlock(&td->slide);
-
+                    pthread_mutex_unlock(&td->slide);
+		}
             } else if (hdr.flags == FLAG_CLIENT_JOIN) {
                 // Send the same message back to client
                 pthread_mutex_lock(&td->send);
@@ -67,7 +78,7 @@ void *serverListen (void *data) {
             } else if (hdr.flags == FLAG_CLIENT_EXIT) {
                 // Client is leaving -- transmission done
                 pthread_mutex_lock(&td->send);
-                leave = 1;
+                conn = 0;
                 serverSend(&buffer[0]);
                 pthread_mutex_unlock(&td->send);
             } else if(hdr.flags == FLAG_CLIENT_RTT) {
@@ -86,58 +97,71 @@ void *serverListen (void *data) {
 
 void *serverTimer (void *data) {
 
-    int i = 0; // Iterator for timer function
+    int i;
     timeout tmp;
     thread_data *td;
     td = (thread_data *) data; 
 
-    while (1) {
+    i = 0;
+    
+    while (conn) {
 
-        // Check if a slide can happen
-        if (td->ss.sendQ[0].ack) {
-            pthread_mutex_lock(&td->slide);
-            for (int c = 0; c < SWS - 1; c++) {
-                *(td->ss.sendQ[c].msg) = *(td->ss.sendQ[c+1].msg);
-                td->ss.sendQ[c].ack = td->ss.sendQ[c+1].ack;
-                td->ss.sendQ[c].start = td->ss.sendQ[c+1].start;
+            // Check if a slide can happen
+            if (td->ss.sendQ[0].ack && params[0] == 3) {
+                pthread_mutex_lock(&td->slide);
+                for (int c = 0; c < SWS - 1; c++) {
+                    memcpy(td->ss.sendQ[c].msg, td->ss.sendQ[c+1].msg, FULL);
+                    td->ss.sendQ[c].start = td->ss.sendQ[c+1].start;
+                    td->ss.sendQ[c].size = td->ss.sendQ[c+1].size;
+                    td->ss.sendQ[c].ack = td->ss.sendQ[c+1].ack;
+                }
+
+                // Reset values of last array position
+                memset(td->ss.sendQ[SWS-1].msg, 0, FULL);
+                td->ss.sendQ[SWS-1].start.tv_sec = 0;
+                td->ss.sendQ[SWS-1].start.tv_usec = 0;
+                td->ss.sendQ[SWS-1].size = 0;
+                td->ss.sendQ[SWS-1].ack = 0;
+
+                // Update the Frame Index
+                td->ss.FI--;             
+                // Update the First Frame Queued
+                td->ss.FFQ = (++td->ss.FFQ) % SN;
+
+                pthread_mutex_unlock(&td->slide);
+                // Signal writer there's a spot open
+                sem_post(&td->empty);
             }
+        
 
-            // Reset values of last array position
-            memset(td->ss.sendQ[SWS-1].msg, 0, FULL);
-            td->ss.sendQ[SWS-1].start.tv_sec = 0;
-            td->ss.sendQ[SWS-1].start.tv_usec = 0;
-            td->ss.sendQ[SWS-1].ack = 0;
+            // See if there is a valid frame in the window
+            if (td->ss.sendQ[i].msg[HLEN] != 0 &&
+		!td->ss.sendQ[i].ack &&
+            	(td->ss.sendQ[i].start.tv_sec != 0 ||
+            	td->ss.sendQ[i].start.tv_usec != 0)
+            	) {
+            	// Check timeout 
+            	gettimeofday(&tmp, NULL);
+            	// Timeout occurs here 
+           	if (timeDiff(td->ss.sendQ[i].start, tmp) > params[2]) {
+                    pthread_mutex_lock(&td->send);
+                    printf("Packet %i ***** Timed Out *****\n", td->ss.sendQ[i].msg[0]);
+                    serverSend(td->ss.sendQ[i].msg);
+                    printf("Packet %i Re-transmitted.\n", td->ss.sendQ[i].msg[0]);
+                    pthread_mutex_unlock(&td->send);
+                    // Update time
+                    gettimeofday(&td->ss.sendQ[i].start, NULL);
+            	}
+		
+		if(params[0] == 1) {
+		    i = td->ss.LFQ;
+		} else if(params[0] == 2) {
 
-            // Update the Frame Index
-            td->ss.FI--;             
-            // Update the First Frame Queued
-            td->ss.FFQ = (++td->ss.FFQ) % SN;
-
-            // Signal writer there's a spot open
-            pthread_mutex_unlock(&td->slide);
-            sem_post(&td->empty);
-        }
-        // See if there is a valid frame in the window
-        if (td->ss.sendQ[i].msg[HLEN] != 0 && 
-            !td->ss.sendQ[i].ack &&
-            (td->ss.sendQ[i].start.tv_sec != 0 ||
-            td->ss.sendQ[i].start.tv_usec != 0)
-            ) {
-            // Check timeout 
-            gettimeofday(&tmp, NULL);
-            // Timeout occurs here 
-            if (timeDiff(td->ss.sendQ[i].start, tmp) > 1000) {
-                pthread_mutex_lock(&td->send);
-                printf("Packet %i ***** Timed Out *****\n", td->ss.sendQ[i].msg[0]);
-                serverSend(td->ss.sendQ[i].msg);
-                printf("Packet %i Re-transmitted.\n", td->ss.sendQ[i].msg[0]);
-                pthread_mutex_unlock(&td->send);
-                // Update time
-                gettimeofday(&td->ss.sendQ[i].start, NULL);
+		} else {
+		    i = (++i) % SWS;
+		}
+            	usleep(20);
             }
-        }
-        i = (++i) % SWS;
-        usleep(100);
     }
 
     return NULL;
@@ -150,18 +174,56 @@ void *serverWriter (void *data) {
     FILE *fp;
     swp_hdr hdr;
     thread_data *td;
-    uint64 fSize, fIter, fLeft;
-    char buffer[MLEN], cont[MLEN];
+    uint16 fLeft;
+    uint64 fSize, fIter;
+    char buffer[params[1]], cont[params[1]];
 
-    i = 0;
     td = (thread_data *) data; 
     fp = getFname("rb", &buffer[0]);
     fSize = fileSize(fp);
-    fLeft = fSize % MLEN;
-    fIter = fSize / MLEN; 
+    fLeft = fSize % params[1];
+    fIter = fSize / params[1]; 
 
-    while (i <= fIter) {
-        if (conn) {
+    while (i <= fIter && conn) {
+        if(params[0] == 1) {
+            pthread_mutex_lock(&td->slide);
+            // Check if the last frame queue was a 1 or 0
+
+           if(td->ss.LFQ || i == 0) {
+           	td->ss.LFQ = 0;
+                hdr.seqNum = 0;
+           } else {
+                td->ss.LFQ = 1;
+                hdr.seqNum = 1;
+           }
+            // Check if we are have hit our last frame
+            // And set the appropriate flag
+            // Fill the packet with the appropriate number of bytes	
+            if (i == fIter) {
+                // last frame
+                hdr.flags = FLAG_END_DATA; 
+                fread(&cont, 1, fLeft, fp);
+		hdr.size = htons(fLeft);
+            } else {
+                hdr.flags = FLAG_HAS_DATA; 
+                fread(&cont, 1, params[1], fp);
+		hdr.size = htons(params[1]);
+            }
+
+            createFrame(td->ss.sendQ[td->ss.LFQ].msg, hdr, &cont[0]);
+        
+            // do initial send
+            pthread_mutex_lock(&td->send);
+            serverSend( td->ss.sendQ[td->ss.LFQ].msg );
+            pthread_mutex_unlock(&td->send);
+            printf("Packet %i sent.\n", hdr.seqNum);
+            gettimeofday(&td->ss.sendQ[td->ss.LFQ].start, NULL);
+            i++;
+	    memset(td->ss.sendQ[td->ss.LFQ].msg, 0, FULL);
+	    memset(cont, 0, FULL);	
+        } else if(params[0] == 2) {
+
+        } else {
             // Check if array is empty
             sem_wait(&td->empty);    
             pthread_mutex_lock(&td->slide);
@@ -169,16 +231,17 @@ void *serverWriter (void *data) {
             hdr.seqNum = td->ss.LFQ;
 
             if (i == fIter) {
-                // last frame
                 hdr.flags = FLAG_END_DATA; 
                 fread(&cont, 1, fLeft, fp);
+                hdr.size = htons(fLeft);
             } else {
                 hdr.flags = FLAG_HAS_DATA; 
-                fread(&cont, 1, MLEN, fp);
+                fread(&cont, 1, params[1], fp);
+                hdr.size = htons(params[1]);
             }
 
             // Checksum is attached in createFrame
-            createFrame( td->ss.sendQ[td->ss.FI].msg, hdr, &cont[0] );
+            createFrame(td->ss.sendQ[td->ss.FI].msg, hdr, &cont[0]);
 
             // do initial send
             pthread_mutex_lock(&td->send);
@@ -192,13 +255,13 @@ void *serverWriter (void *data) {
 
             pthread_mutex_unlock( &td->slide );
 
-            memset(&cont, 0, MLEN);
+            memset(&cont[0], 0, params[1]);
             i++;
         }
     }
+     
 
     fclose(fp);
-    printf("Writer thread exiting...\n");
     return NULL;
 
 }
@@ -212,9 +275,7 @@ void serverDestroy (thread_data *td) {
     pthread_mutex_destroy(&td->send);
     pthread_mutex_destroy(&td->slide);
     sem_destroy(&td->empty);
-
     close(sockfd);
-
 }
 
 
@@ -225,7 +286,7 @@ int calculateCustomTimeout(thread_data *td) {
     double rttm, rtts = 0;
    
     // Create our test packet to send
-    char testPacket[MLEN];
+    char testPacket[params[1]];
     swp_hdr rttHdr;
     rttHdr.flags = FLAG_SERVER_RTT;
     char rttFrame[FULL];
@@ -235,7 +296,7 @@ int calculateCustomTimeout(thread_data *td) {
    
     // Loop through and send 50 packets to the client to measure RTT.
     // Perform the calculation to find a smoothed RTT 
-    for(int i = 0; i < 50; i++) {
+    for(int i = 0; i < 10; i++) {
 	// Get current time
 	gettimeofday(&start, NULL);
 	// Send the packet	
@@ -260,7 +321,6 @@ int calculateCustomTimeout(thread_data *td) {
 	// will throw off our RTT calculation
 	if(td->rttBool == 1) {
 	    if(rtts == 0) {
-		printf("Here!\n");
 		gettimeofday(&end, NULL);
 		rttm = (end.tv_usec - start.tv_usec);
 		rtts = rttm;
@@ -273,7 +333,6 @@ int calculateCustomTimeout(thread_data *td) {
 	}
 	td->rttBool = 0;
     }
-    printf("Rtts: %lf\n", rtts);
     return (int) rtts * 2;
 }
 
@@ -289,11 +348,12 @@ void menu(thread_data *td) {
     if(menu == 1) {
 	// Set default values here
 	netProtocol = 1;
-	packetSize = 1500;
-	timeout = 150;
+	packetSize = 1492;
+	timeout = 350;
 	windowSize = 2000;
 	sequenceBegin = 123;
 	sequenceEnd = 12345;
+	params[1] = packetSize;
     } else if(menu == 2) {
 	// Check which network protocl the user wishes to use
 	printf("Which protocol do you wish to use?\n\n");
@@ -309,12 +369,16 @@ void menu(thread_data *td) {
 	printf("Size of the packets you wish to use (In bytes): ");
 	cin >> packetSize;
 	printf("\n");		
+    	params[1] = packetSize;
+	
+	printf("Packetsize variable: %d\n", packetSize);
+	printf("Packetsize params: %d\n", params[1]);
 
 	if(packetSize < 1) {
 	    printf("Invalid packet size. Packet size must be positive. Exiting.\n");
 	    exit(-1);	
-	}else if(packetSize > 1500) {
-	    printf("Invalid packet size. Packet size is greater than MTU of 1500. Exiting.\n");
+	}else if(packetSize > 1492) {
+	    printf("Invalid packet size. Packet size is greater than MTU of 1492 (Packet header causes MTU to be 1492 bytes). Exiting.\n");
 	    exit(2);
 	}
 
@@ -349,7 +413,6 @@ void menu(thread_data *td) {
 
     // Build an array of all params to send the receiver
     params[0] = netProtocol;
-    params[1] = packetSize;
     params[2] = timeout;
     params[3] = windowSize;
     params[4] = sequenceBegin;
@@ -390,12 +453,9 @@ void serverInit (thread_data *td) {
     int opt = 1;
 
     conn = 0;
-    leave = 0;
     td->ss.FI = 0;
     td->ss.FFQ = 0;
     td->ss.LFQ = 0;
-    // Init CRC table lookup
-    crcInit();
 
     // Creating socket file descriptor 
     if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
@@ -423,9 +483,10 @@ void serverInit (thread_data *td) {
 
     // Initialize all values of the window
     for (int i = 0; i < SWS; i++) {
-        td->ss.sendQ[i].msg = (char *)malloc(FULL * sizeof(char));
+        td->ss.sendQ[i].msg = (char *)malloc(FULL);
         td->ss.sendQ[i].start.tv_sec = 0;
         td->ss.sendQ[i].start.tv_usec = 0;
+        td->ss.sendQ[i].size = 0;
         td->ss.sendQ[i].ack = 0;
     }
 
@@ -433,10 +494,7 @@ void serverInit (thread_data *td) {
     pthread_mutex_init(&td->slide, NULL);
     pthread_mutex_init(&td->send, NULL);
     sem_init(&td->empty, 0, SWS);
-
 }
-
-
 
 int main (void) {
 
@@ -473,7 +531,7 @@ int main (void) {
        exit(-1);
     }
 
-    pthread_join(threads[0],NULL);
+    pthread_join(threads[2],NULL);
     serverDestroy(&td);
 
     return 0;
