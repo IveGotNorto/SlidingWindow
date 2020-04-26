@@ -1,5 +1,5 @@
 #include "utilities.h"
-	
+
 int params[7];
 int sockfd, conn; 
 pthread_t threads[NUM_THREADS];
@@ -12,6 +12,10 @@ typedef struct {
     mutex send;
     semaphore empty;
     bool rttBool;
+    time_t startTime;
+    int numPackets;
+    int droppedPackets;
+    int fileSize;
 } thread_data;
 
 // Send completed frame to client
@@ -144,7 +148,8 @@ void *serverTimer (void *data) {
             	gettimeofday(&tmp, NULL);
             	// Timeout occurs here 
            	if (timeDiff(td->ss.sendQ[i].start, tmp) > params[2]) {
-                    pthread_mutex_lock(&td->send);
+		    td->droppedPackets = td->droppedPackets + 1;
+		    pthread_mutex_lock(&td->send);
                     printf("Packet %i ***** Timed Out *****\n", td->ss.sendQ[i].msg[0]);
                     serverSend(td->ss.sendQ[i].msg);
                     printf("Packet %i Re-transmitted.\n", td->ss.sendQ[i].msg[0]);
@@ -181,8 +186,11 @@ void *serverWriter (void *data) {
     td = (thread_data *) data; 
     fp = getFname("rb", &buffer[0]);
     fSize = fileSize(fp);
+    td->fileSize = fSize;
+    printf("Filesize: %d\n", fSize);
     fLeft = fSize % params[1];
-    fIter = fSize / params[1]; 
+    fIter = fSize / params[1];
+    time(&td->startTime);
 
     while (i <= fIter && conn) {
         if(params[0] == 1) {
@@ -204,6 +212,7 @@ void *serverWriter (void *data) {
                 hdr.flags = FLAG_END_DATA; 
                 fread(&cont, 1, fLeft, fp);
 		hdr.size = htons(fLeft);
+		td->numPackets = i + 1;
             } else {
                 hdr.flags = FLAG_HAS_DATA; 
                 fread(&cont, 1, params[1], fp);
@@ -219,8 +228,6 @@ void *serverWriter (void *data) {
             printf("Packet %i sent.\n", hdr.seqNum);
             gettimeofday(&td->ss.sendQ[td->ss.LFQ].start, NULL);
             i++;
-	    memset(td->ss.sendQ[td->ss.LFQ].msg, 0, FULL);
-	    memset(cont, 0, FULL);	
         } else if(params[0] == 2) {
 
         } else {
@@ -234,6 +241,7 @@ void *serverWriter (void *data) {
                 hdr.flags = FLAG_END_DATA; 
                 fread(&cont, 1, fLeft, fp);
                 hdr.size = htons(fLeft);
+		td->numPackets = i + 1;
             } else {
                 hdr.flags = FLAG_HAS_DATA; 
                 fread(&cont, 1, params[1], fp);
@@ -267,6 +275,15 @@ void *serverWriter (void *data) {
 }
 
 void serverDestroy (thread_data *td) {
+    // Calculate total transmission time
+    time_t endTime;
+    time(&endTime);
+    double elapsedTime = (double)(endTime - td->startTime);
+    
+    // Prevent division by 0
+    if(!elapsedTime) {
+	elapsedTime = 1;
+    }
 
     for (int i = 0; i < SWS; i++) {
         free(td->ss.sendQ[i].msg);
@@ -276,6 +293,13 @@ void serverDestroy (thread_data *td) {
     pthread_mutex_destroy(&td->slide);
     sem_destroy(&td->empty);
     close(sockfd);
+
+    printf("Session successfully terminated\n");
+    printf("Number of original packets sent: %d\n", td->numPackets);
+    printf("Number of retransmitted packets: %d\n", td->droppedPackets);
+    printf("Total elapsed time: %lf seconds\n", elapsedTime);
+    printf("Total throughput (Mbps): %lf\n", (((double)((td->fileSize + (td->droppedPackets * params[1])) * 8) / elapsedTime) / 1000000));
+    printf("Effective throughput (Mbps): %lf\n", (((double)(td->fileSize * 8) / elapsedTime) / 1000000));
 }
 
 

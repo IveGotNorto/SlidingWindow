@@ -10,6 +10,9 @@ typedef struct {
     semaphore full;
     mutex slide;
     int conn;           // Is client connected?
+    int numPackets;
+    int droppedPackets;
+    int lastSequenceNum;
 } thread_data;
 
 // Only send header frames to server
@@ -29,6 +32,8 @@ void *clientListener (void *data) {
     thread_data *td;
     swp_hdr hdr;
     td = (thread_data *) data;
+    td->droppedPackets = 0;
+    td->numPackets = 0;
 
     while (1) {
 
@@ -79,7 +84,7 @@ void *clientListener (void *data) {
 			    // Send our Ack to the server
 			    clientSend(&tmp[0]);
                             printf("Ack %i sent.\n", hdr.seqNum);
-			   
+			    td->numPackets = td->numPackets + 1; 
 
                             if(hdr.seqNum) {
                                 sawSeqExp = 0;
@@ -93,11 +98,13 @@ void *clientListener (void *data) {
                                 tmp[0] = 0;
                                 tmp[1] = FLAG_ACK_VALID;
                                 clientSend(&tmp[0]);
+				td->droppedPackets = td->droppedPackets + 1;
                                 printf("Original Ack lost or Packet lost resending Ack %d\n", 0);
                             } else {
                                 tmp[0] = 1;
                                 tmp[1] = FLAG_ACK_VALID;
                                 clientSend(&tmp[0]);
+				td->droppedPackets = td->droppedPackets + 1;
                                 printf("Original Ack lost or Packet lost resending Ack %d\n", 1);
                             }
 			    pthread_mutex_unlock(&td->slide);
@@ -122,11 +129,15 @@ void *clientListener (void *data) {
                                 // Copy frame data to queue
                                 memcpy(td->ss.recvQ[iFrame].msg, &buffer[sizeof(swp_hdr)], MLEN);
 
+				if(hdr.flags == FLAG_END_DATA) {
+				    td->lastSequenceNum = hdr.seqNum;
+				}
+
                                 td->ss.recvQ[iFrame].size = ntohs(hdr.size);
                                 td->ss.recvQ[iFrame].ackNum = hdr.seqNum;
                                 td->ss.recvQ[iFrame].flags = hdr.flags;
                                 td->ss.recvQ[iFrame].valid = 1;
-
+				td->numPackets = td->numPackets + 1;
                                 tmp[0] = hdr.seqNum;
                                 tmp[1] = FLAG_ACK_VALID;
                                 clientSend(&tmp[0]);
@@ -321,6 +332,11 @@ void clientInit (thread_data *td) {
 }
 
 void clientDestroy (thread_data *td) {
+    if(params[0] != 1) {
+	printf("Last packet seq# received: %d\n", td->lastSequenceNum);
+    }
+    printf("Number of original packets received: %d\n", td->numPackets);
+    printf("Number of retransmitted packets received: %d\n", td->droppedPackets);
 
     if(params[0] == 3) {
         for (int i = 0; i < RWS; i++) {

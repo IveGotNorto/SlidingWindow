@@ -5,6 +5,7 @@
 #include <cstdio> 
 #include <cstdlib> 
 #include <cstring> 
+#include <cmath>
 #include <string>
 #include <unistd.h>
 #include <iostream>
