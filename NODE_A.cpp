@@ -1,6 +1,6 @@
 #include "utilities.h"
 
-int params[7];
+int params[4];
 int sockfd, conn; 
 pthread_t threads[NUM_THREADS];
 unsigned int len;
@@ -15,7 +15,7 @@ typedef struct {
     time_t startTime;
     int numPackets;
     int droppedPackets;
-    int fileSize;
+    double fileSize;
 } thread_data;
 
 // Send completed frame to client
@@ -298,8 +298,8 @@ void serverDestroy (thread_data *td) {
     printf("Number of original packets sent: %d\n", td->numPackets);
     printf("Number of retransmitted packets: %d\n", td->droppedPackets);
     printf("Total elapsed time: %lf seconds\n", elapsedTime);
-    printf("Total throughput (Mbps): %lf\n", (((double)((td->fileSize + (td->droppedPackets * params[1])) * 8) / elapsedTime) / 1000000));
-    printf("Effective throughput (Mbps): %lf\n", (((double)(td->fileSize * 8) / elapsedTime) / 1000000));
+    printf("Total throughput (Mbps): %lf\n", ((((td->fileSize + (double)(td->droppedPackets * params[1])) * 8) / elapsedTime) / 1000000));
+    printf("Effective throughput (Mbps): %lf\n", (((td->fileSize * 8) / elapsedTime) / 1000000));
 }
 
 
@@ -425,10 +425,7 @@ void menu(thread_data *td) {
 	    printf("Calculated timeout using given packet size of %d bytes is: %d microseconds\n", packetSize, timeout);
 	}
 
-	if(netProtocol != 1) {
-	    // TODO: Implement menu elements to retrieve remaining params 
-	    // necessary for GBN and SR.
-	}		
+			
 		
     } else {
 	printf("Invalid input. Exiting.");
@@ -438,10 +435,7 @@ void menu(thread_data *td) {
     // Build an array of all params to send the receiver
     params[0] = netProtocol;
     params[2] = timeout;
-    params[3] = windowSize;
-    params[4] = sequenceBegin;
-    params[5] = sequenceEnd;
-    params[6] = situationalErrors;
+    params[3] = situationalErrors;
 
    if(conn){ 
 	// Buffers for converting int params array to char array
@@ -480,7 +474,8 @@ void serverInit (thread_data *td) {
     td->ss.FI = 0;
     td->ss.FFQ = 0;
     td->ss.LFQ = 0;
-
+    td->droppedPackets = 0;
+	
     // Creating socket file descriptor 
     if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
         perror("socket creation failed"); 
@@ -493,7 +488,7 @@ void serverInit (thread_data *td) {
     // Server information 
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(PORTA); 
-    servaddr.sin_addr.s_addr = inet_addr(THING1); 
+    servaddr.sin_addr.s_addr = inet_addr(THING0); 
 
     if ( bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
         perror("bind");

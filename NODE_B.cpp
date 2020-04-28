@@ -3,7 +3,7 @@
 int sockfd;
 unsigned int len;
 struct sockaddr_in servaddr; 
-int params[7];
+int params[4];
 
 typedef struct {
     cli_swp_state ss;
@@ -48,13 +48,6 @@ void *clientListener (void *data) {
             // Strip off header
             memcpy(&hdr, &buffer[0], sizeof(swp_hdr));
             printf("Packet %i recieved\n", hdr.seqNum);
-            // Strip off checksum
-            //memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
-
-            //tmpChk = ntohl(tmpChk);
-            //chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
-        
-            if (chk == tmpChk) {
                                
 	       //  printf("Checksum OK\n");
 
@@ -64,33 +57,45 @@ void *clientListener (void *data) {
                     if(params[0] == 1) {
                         // Stop and Wait
                         // Check if the sequence number sent by NODE_A is what we expected
-                        if(hdr.seqNum == sawSeqExp) {		
-                            // Copy frame data to queue
-                            memcpy(td->ss.recvQ[0].msg, &buffer[sizeof(swp_hdr)], params[1]);
-			    // Pull the frames header info off
-                            td->ss.recvQ[0].size = ntohs(hdr.size);
-                            td->ss.recvQ[0].ackNum = hdr.seqNum;
-                            td->ss.recvQ[0].flags = hdr.flags;
-                            td->ss.recvQ[0].valid = 1;
+                        if(hdr.seqNum == sawSeqExp) {
 
-                            // Set the ACK data         	
-                            tmp[0] = hdr.seqNum;
-                            tmp[1] = FLAG_ACK_VALID;
+            		    // Strip off checksum
+                            memcpy(&tmpChk, &buffer[HLEN + params[1]], sizeof(uint32));
+
+            		    tmpChk = ntohl(tmpChk);
+            		    chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
+			    
+			    if(tmpChk == chk) {
+				printf("Checksum OK\n");
+                            	// Copy frame data to queue
+                            	memcpy(td->ss.recvQ[0].msg, &buffer[sizeof(swp_hdr)], params[1]);
+			    	// Pull the frames header info off
+                            	td->ss.recvQ[0].size = ntohs(hdr.size);
+                            	td->ss.recvQ[0].ackNum = hdr.seqNum;
+                            	td->ss.recvQ[0].flags = hdr.flags;
+                            	td->ss.recvQ[0].valid = 1;
+
+                            	// Set the ACK data         	
+                            	tmp[0] = hdr.seqNum;
+                            	tmp[1] = FLAG_ACK_VALID;
 			  
-			    // Lock the thread, and wait for the writer to write the data to the file. 
-			    pthread_mutex_lock(&td->slide);
-		            while(td->ss.recvQ[0].valid);
-			    pthread_mutex_unlock(&td->slide);
-			    // Send our Ack to the server
-			    clientSend(&tmp[0]);
-                            printf("Ack %i sent.\n", hdr.seqNum);
-			    td->numPackets = td->numPackets + 1; 
+			    	// Lock the thread, and wait for the writer to write the data to the file. 
+			    	pthread_mutex_lock(&td->slide);
+		            	while(td->ss.recvQ[0].valid);
+			    	pthread_mutex_unlock(&td->slide);
+			    	// Send our Ack to the server
+			    	clientSend(&tmp[0]);
+                           	 printf("Ack %i sent.\n", hdr.seqNum);
+			    	td->numPackets = td->numPackets + 1; 
 
-                            if(hdr.seqNum) {
-                                sawSeqExp = 0;
-                            } else {
-                                sawSeqExp = 1;
-                            }
+                            	if(hdr.seqNum) {
+                                    sawSeqExp = 0;
+                            	} else {
+                                    sawSeqExp = 1;
+                            	}	
+			    } else {
+				printf("Checksum failed\n");
+			    }
                         } else {
 			    pthread_mutex_lock(&td->slide);
                             // Check what the sequence number of the lost ACK was and resend it
@@ -175,9 +180,6 @@ void *clientListener (void *data) {
                     td->conn = 0;
                 }
 
-            } else {
-                printf("Checksum failed\n");
-            }
 
             // Clear buffer
             memset(&buffer[0], 0, FULL);
@@ -316,7 +318,7 @@ void clientInit (thread_data *td) {
     // Filling server information 
     servaddr.sin_family = AF_INET; 
     servaddr.sin_port = htons(PORTA); 
-    servaddr.sin_addr.s_addr = inet_addr(THING1); 
+    servaddr.sin_addr.s_addr = inet_addr(THING0); 
 
     // Initialize client window values
     for (int i = 0; i < RWS; i++) {
