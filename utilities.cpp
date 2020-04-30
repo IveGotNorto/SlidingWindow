@@ -3,24 +3,10 @@
 // Get file name and open file
 FILE *getFname(const char *method, char *fileName) {
     FILE *fp = NULL;
-
     while (!strlen(fileName) || !fp) {
         printf("\nPlease enter a filename: ");
         scanf("%s", fileName);
-
         fp = fopen(fileName, method);
-
-        /**
-            Cant think of a more elegant way to do this
-            I dont want to delete the file before the chance
-            to make sure it can be written to.
-        **/
-        if (!strcmp(method, "a") && fp) {
-            fclose(fp);
-            remove(fileName);
-            fp = fopen(fileName, method);
-        }
-
     }
     return fp;
 }
@@ -31,9 +17,7 @@ long fileSize (FILE *fp) {
         printf("Error: Unable to find end of file\n");
         exit(1);
     }
-
     long size = ftell(fp);
-
     printf("File input size: %li (bytes)\n", size);
     // Back to beginning of file;
     fseek(fp, 0L, SEEK_SET);
@@ -51,12 +35,13 @@ void createFrame (char *frame, swp_hdr hdr, char *buffer) {
     uint32 chk;
     frame[0] = hdr.seqNum;
     frame[1] = hdr.flags;
+    hdr.size = htons(hdr.size);
     memcpy(&frame[2], &hdr.size, sizeof(uint16));
     // Copy message to frame
-    memcpy(&frame[sizeof(swp_hdr)], buffer, MLEN);    
+    memcpy(&frame[HLEN], buffer, MLEN);    
     chk = htonl(crcSlow((const unsigned char *)&frame[0], HLEN + MLEN));
     // Copy checksum to frame
-    memcpy(&frame[MLEN + HLEN], &chk, sizeof(uint32)); 
+    memcpy(&frame[MLEN + HLEN], &chk, sizeof(CLEN)); 
 }
 
 int swpInWindow (uint8 seqNum, uint8 min, uint8 max) {

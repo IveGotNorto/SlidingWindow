@@ -6,9 +6,7 @@
 #include <cstdlib> 
 #include <cstring> 
 #include <cmath>
-#include <string>
 #include <unistd.h>
-#include <iostream>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/in.h>
@@ -16,34 +14,48 @@
 #include <semaphore.h>
 #include <pthread.h>
 #include <signal.h>
-#include<string.h>
 
-#define PORTA 9010
-#define PORTB 9011
+// Port Declarations
+#define PORTA 9012
+#define PORTB 9113
 
-#define HLEN 4      // Frame header length
-#define MLEN 1492   // Frame message length
-#define FULL 1500   // Total frame size
+// Packet Information
+#define HLEN 4          // Frame header length
+#define CLEN 4          // Checksum length
+#define MLEN 1492       // Frame message length
+#define FULL 1500       // Total frame size
 
+// Misc. Tweaks
 #define NUM_THREADS 5
 #define ATTEMPTS 10
 #define MAXTIMEOUT 1000    // Max timeout used in RTT ping calculation
 
-#define THING0 "10.35.195.46"
-#define THING1 "10.35.195.47"
-#define THING2 "10.35.195.22"
-#define THING3 "10.35.195.22"
+// Frame Flag Definitions
+#define FLAG_ACK_VALID 0x1
+#define FLAG_HAS_DATA 0x2
+#define FLAG_END_DATA 0x3
+#define FLAG_CLIENT_JOIN 0x4
+#define FLAG_SERVER_RTT 0x5
+#define FLAG_CLIENT_EXIT 0x6
+#define FLAG_CLIENT_RTT 0x7
 
-#define FLAG_ACK_VALID 0xA
-#define FLAG_HAS_DATA 0xB
-#define FLAG_END_DATA 0xC
-#define FLAG_CLIENT_JOIN 0xD
-#define FLAG_SERVER_RTT 0xE
-#define FLAG_CLIENT_EXIT 0xF
-#define FLAG_SERVER_PARAMS 0x1A
-#define FLAG_CLIENT_RTT 0x1B
+// Error Flag Definitions
+#define ERROR_DROP_PACK 0x1
+#define ERROR_DROP_ACK 0x2
+#define ERROR_BAD_CHK 0x4
 
-using namespace std;
+// Define the server
+//#define SERVER "10.35.195.46"   // THING 0
+#define SERVER "10.35.195.47"   // THING 1
+//#define SERVER "10.35.195.22"   // THING 2
+//#define SERVER "10.35.195.49"   // THING 3
+
+// Set Protocol
+#define SaW
+//#define GBN
+//#define SR
+
+#define ERRORCHK(a,b) a == (b & a)
 
 typedef unsigned char uint8;
 typedef unsigned short uint16;
@@ -55,11 +67,11 @@ typedef pthread_cond_t condition;
 typedef struct timeval timeout;
 typedef sem_t semaphore;
 
-typedef char* Msg;
+const uint32 SWS = 8;   // Server window size
+const uint32 RWS = 8;   // Recieving window size
+const uint32 SN = 32;   // Sequence Number
 
-const uint32 SWS = 8;
-const uint32 RWS = 8;
-const uint32 SN = 32;
+typedef char* Msg;
 
 typedef struct {
     uint8 seqNum;       // Sequence number of frame
@@ -74,6 +86,7 @@ typedef struct {
     uint32 LFQ;      // Last Frame Queued
 
     struct sendQ_slot {
+        uint8 errors;
         uint16 size;
         uint32 ack;
         Msg msg;
@@ -93,7 +106,7 @@ typedef struct {
         uint16 size;    // Write size of data
         uint32 valid;   // Is the message valid?
         Msg msg;        // Data
-    } recvQ[SWS];
+    } recvQ[RWS];
 
 } cli_swp_state;
 
