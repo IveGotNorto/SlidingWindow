@@ -31,6 +31,7 @@ void serverSend (char *frame) {
 void *serverListen (void *data) {
 
     int i;
+    int expectedAck = 0;
     char buffer[HLEN];
     thread_data *td;
     swp_hdr hdr;
@@ -50,26 +51,69 @@ void *serverListen (void *data) {
 
 
 		if(params[0] == 1) {
+		    // Verify ACKs for Stop and Wait
 		    if(hdr.seqNum == td->ss.LFQ) {
+			// Flip the ACK bit for the last sent frame
 		    	td->ss.sendQ[td->ss.LFQ].ack = 1;
                     	printf("Ack %i recieved\n", hdr.seqNum);
+			// Unlock the mutex to allow our writer to write again
 		    	pthread_mutex_unlock(&td->slide);
 		    }
-		} else if(params[0] == 2) {
-
 		} else {
 		    // Selective Repeat
                     pthread_mutex_lock(&td->slide);
                     if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
-
+				
                     	i = 0;
                     	// Search for sequence number
                     	while (hdr.seqNum != td->ss.sendQ[i].msg[0]) {
                             i = (++i) % SWS;
                     	}
-                    	printf("Ack %i recieved\n", hdr.seqNum);
-                    	td->ss.sendQ[i].ack = 1;
 
+			if(params[0] == 2) {
+			    // Check if the ACK sent by client is out of order, and unACKed
+			    if(expectedAck != hdr.seqNum && !td->ss.sendQ[i].ack) {
+				printf("Ack %i received out of order. ACKing all packets with a lower sequence number.\n", hdr.seqNum);
+				int k = 0;
+				int j = hdr.seqNum;	
+				// Deal with wrap around cases
+				if ((hdr.seqNum - expectedAck) < 0) {
+				    k = (SN - expectedAck) + hdr.seqNum;
+				// Normal cases
+				} else {
+				    k = hdr.seqNum - expectedAck;
+				}
+				// ACK any frames in the ACK below the ACK
+				// sent by the client
+				for(int i = k + 1; i > 0; i--) {
+				    if(!td->ss.sendQ[j].ack) {
+				    	printf("Acked %i\n", j);
+				    	td->ss.sendQ[j].ack = 1;
+				    }	
+				    j--; 
+				    if(j == -1) {
+					j = SN - 1;	
+				    }
+				}
+				// Update our next expected ACK
+				expectedAck = (++hdr.seqNum) % SN;
+			    } else {
+				// This is a weird check that is necessary for catching
+				// A race condition for when two ACK's for the same value
+				// are sent back by the client
+				if(expectedAck == hdr.seqNum && !td->ss.sendQ[i].ack) {
+				    // ACK and increment expectedACK.
+				    printf("Ack %i recieved\n", hdr.seqNum);
+				    td->ss.sendQ[i].ack = 1;
+				    expectedAck = (++expectedAck) % SN;
+				}
+			    }
+
+			} else {
+			    // Verifying ACKs for selective repeat
+                    	    printf("Ack %i recieved\n", hdr.seqNum);
+                    	    td->ss.sendQ[i].ack = 1;
+			}	
                     }
                     pthread_mutex_unlock(&td->slide);
 		}
@@ -111,7 +155,7 @@ void *serverTimer (void *data) {
     while (conn) {
 
             // Check if a slide can happen
-            if (td->ss.sendQ[0].ack && params[0] == 3) {
+            if (td->ss.sendQ[0].ack && params[0] != 1) {
                 pthread_mutex_lock(&td->slide);
                 for (int c = 0; c < SWS - 1; c++) {
                     memcpy(td->ss.sendQ[c].msg, td->ss.sendQ[c+1].msg, FULL);
@@ -139,9 +183,8 @@ void *serverTimer (void *data) {
         
 
             // See if there is a valid frame in the window
-            if (td->ss.sendQ[i].msg[HLEN] != 0 &&
-		!td->ss.sendQ[i].ack &&
-            	(td->ss.sendQ[i].start.tv_sec != 0 ||
+            if (!td->ss.sendQ[i].ack &&
+            	(td->ss.sendQ[i].start.tv_sec != 0 &&
             	td->ss.sendQ[i].start.tv_usec != 0)
             	) {
             	// Check timeout 
@@ -160,9 +203,7 @@ void *serverTimer (void *data) {
 		
 		if(params[0] == 1) {
 		    i = td->ss.LFQ;
-		} else if(params[0] == 2) {
-
-		} else {
+		}  else {
 		    i = (++i) % SWS;
 		}
             	usleep(20);
@@ -174,15 +215,16 @@ void *serverTimer (void *data) {
 }
 
 void *serverWriter (void *data) {
-    
+
+    int k;    
     int i;
     FILE *fp;
     swp_hdr hdr;
     thread_data *td;
     uint16 fLeft;
     uint64 fSize, fIter;
+    swp_hdr tmpHdr;
     char buffer[params[1]], cont[params[1]];
-
     td = (thread_data *) data; 
     fp = getFname("rb", &buffer[0]);
     fSize = fileSize(fp);
@@ -228,14 +270,13 @@ void *serverWriter (void *data) {
             printf("Packet %i sent.\n", hdr.seqNum);
             gettimeofday(&td->ss.sendQ[td->ss.LFQ].start, NULL);
             i++;
-        } else if(params[0] == 2) {
-
         } else {
             // Check if array is empty
             sem_wait(&td->empty);    
             pthread_mutex_lock(&td->slide);
             // Attach flags for frame
             hdr.seqNum = td->ss.LFQ;
+
 
             if (i == fIter) {
                 hdr.flags = FLAG_END_DATA; 
@@ -262,7 +303,36 @@ void *serverWriter (void *data) {
             ++td->ss.FI;    // Frame Index will never go above SWS - 1 
 
             pthread_mutex_unlock( &td->slide );
+	    
+	    // Print current window size
+	    if(i < 8) {	
+		printf("Current window = [0, 1, 2, 3, 4, 5, 6, 7]\n");	
+	    } else {
+	    	printf("Current window = [");
+		// Pull last frame value
+	    	int t = td->ss.LFQ - SWS;
+		// Find if we need to wrap around due our window going from the end
+		// of SN to the start.
+	    	if(t < 0) {
+		    t = SN + t;
+	    	}
+		// Print our values, make sure to check for 
+		// wrapping and deal with it
+	    	for(int k = 0; k < SWS - 1; k++) {
+		    printf("%d,", t);
+		    t++;
+		    if(t == SN) {
+		    	t = 0;	
+		    }
+	    	}
+	    	if(t == SN) {
+		    t = 0;
+	    	}
 
+	    	printf("%d]\n", t);
+	    }
+	    
+	    
             memset(&cont[0], 0, params[1]);
             i++;
         }

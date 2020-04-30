@@ -26,7 +26,7 @@ void clientSend (char *frame) {
 
 void *clientListener (void *data) {
     int iFrame;
-    int sawSeqExp = 0;	// Sequence number we are expecting from NODE_A
+    int seqExp = 0;	// Sequence number we are expecting from NODE_A
     uint32 chk, tmpChk;
     char buffer[FULL], tmp[HLEN];
     thread_data *td;
@@ -57,14 +57,14 @@ void *clientListener (void *data) {
                     if(params[0] == 1) {
                         // Stop and Wait
                         // Check if the sequence number sent by NODE_A is what we expected
-                        if(hdr.seqNum == sawSeqExp) {
+                        if(hdr.seqNum == seqExp) {
 
             		    // Strip off checksum
-                            memcpy(&tmpChk, &buffer[HLEN + params[1]], sizeof(uint32));
+                            memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
 
             		    tmpChk = ntohl(tmpChk);
             		    chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
-			    
+			    // Validate checksum    
 			    if(tmpChk == chk) {
 				printf("Checksum OK\n");
                             	// Copy frame data to queue
@@ -85,21 +85,22 @@ void *clientListener (void *data) {
 			    	pthread_mutex_unlock(&td->slide);
 			    	// Send our Ack to the server
 			    	clientSend(&tmp[0]);
-                           	 printf("Ack %i sent.\n", hdr.seqNum);
+                           	printf("Ack %i sent.\n", hdr.seqNum);
 			    	td->numPackets = td->numPackets + 1; 
-
+				// Update the sequence number we are expecting from the client
                             	if(hdr.seqNum) {
-                                    sawSeqExp = 0;
+                                    seqExp = 0;
                             	} else {
-                                    sawSeqExp = 1;
+                                    seqExp = 1;
                             	}	
 			    } else {
+				// Failed checksum
 				printf("Checksum failed\n");
 			    }
                         } else {
 			    pthread_mutex_lock(&td->slide);
                             // Check what the sequence number of the lost ACK was and resend it
-                            if(sawSeqExp) {
+                            if(seqExp) {
                                 tmp[0] = 0;
                                 tmp[1] = FLAG_ACK_VALID;
                                 clientSend(&tmp[0]);
@@ -116,6 +117,65 @@ void *clientListener (void *data) {
                         }
                     } else if(params[0] == 2) {
                         // Go-Back-N
+                        // Check if the sequence number sent by NODE_A is what we expected
+                        if(hdr.seqNum == seqExp) {
+            		   // Strip off checksum
+                           memcpy(&tmpChk, &buffer[HLEN + MLEN], sizeof(uint32));
+
+            		   tmpChk = ntohl(tmpChk);
+            		   chk = crcSlow((const unsigned char *)&buffer[0], MLEN + HLEN);
+			    // Validate checksum   
+			    if(tmpChk == chk) {
+				printf("Checksum OK\n");
+                            	// Copy frame data to queue
+                            	memcpy(td->ss.recvQ[0].msg, &buffer[sizeof(swp_hdr)], params[1]);
+			    	// Pull the frames header info off
+                            	td->ss.recvQ[0].size = ntohs(hdr.size);
+                            	td->ss.recvQ[0].ackNum = hdr.seqNum;
+                            	td->ss.recvQ[0].flags = hdr.flags;
+                            	td->ss.recvQ[0].valid = 1;
+
+                            	// Set the ACK data         	
+                            	tmp[0] = hdr.seqNum;
+                            	tmp[1] = FLAG_ACK_VALID;
+			  
+			    	// Lock the thread, and wait for the writer to write the data to the file. 
+			    	pthread_mutex_lock(&td->slide);
+		            	while(td->ss.recvQ[0].valid);
+			    	pthread_mutex_unlock(&td->slide);
+			    	// Send our Ack to the server
+			    	clientSend(&tmp[0]);
+                           	printf("Ack %i sent.\n", hdr.seqNum);
+			    	td->numPackets = td->numPackets + 1; 
+				// Check if we have reached the end of the transmission
+				if(hdr.flags == FLAG_END_DATA) {
+				    td->lastSequenceNum = hdr.seqNum;
+				}
+				// Increment expect packet, and print our current window size
+				seqExp = (++seqExp) % SN;
+				printf("Current window = [%d]\n", seqExp);
+			    } else {
+				// Checksum failed, print message and current window
+				printf("Checksum failed\n");
+				printf("Current window = [%d]\n", seqExp);
+			    }
+                        } else {
+			    if(hdr.seqNum < seqExp) {
+			    	pthread_mutex_lock(&td->slide);
+                            	// Resend the hight valid ACK that we have if a packet with less
+                            	// than our highest ACK valued comes in.
+                           	tmp[0] = seqExp - 1;
+                            	tmp[1] = FLAG_ACK_VALID;
+                            	clientSend(&tmp[0]);
+		            	td->droppedPackets = td->droppedPackets + 1;
+                            	printf("Packet with less than expected sequence received. Resending highest previous Ack %d\n", seqExp - 1);
+			    	pthread_mutex_unlock(&td->slide);
+			    } else if(hdr.seqNum > seqExp) {
+				// If a packet comes in with a higher than valid sequence, just ignore
+				printf("Packet with higher than expected sequence received.\n");
+				td->droppedPackets = td->droppedPackets + 1;
+			    }
+			}
                     } else {
                         pthread_mutex_lock(&td->slide);
                         if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
@@ -200,29 +260,28 @@ void *clientWriter (void *data) {
     FILE *fp;
     thread_data *td;
     int i = 0;
-    fp = fopen("/tmp/SuperAwesomeTestFile", "wb");
+    fp = fopen("/tmp/AmazingAwesomeTestFile", "wb");
     td = (thread_data *) data;
     end = 0;
 
     while (!end) {
 
-	if(params[0] == 1) { 
-            // Wait a message to reach the front of queue
+	if(params[0] != 3) { 
+            // Wait for a message to reach the queue
             if (td->ss.recvQ[0].valid) {
-		
+		// Write the message, reset the buffer
                 fwrite(td->ss.recvQ[0].msg, td->ss.recvQ[0].size, 1, fp);
                 memset(td->ss.recvQ[0].msg, 0, FULL);
                 td->ss.recvQ[0].valid = 0;
 		td->ss.recvQ[0].size = 0;
+		// Check if we have finished the transmission of data
 		if(td->ss.recvQ[0].flags == FLAG_END_DATA) {
 		    end = 1;
 		}
+		// Reset the flag, signaling listener to send ACK to server
                 td->ss.recvQ[0].flags = 0;
             }
-	} else if(params[0] == 2) {
-
 	} else {
-
             // Wait for valid slot to open
             if (td->ss.recvQ[0].valid) {
                 pthread_mutex_lock(&td->slide);
@@ -334,6 +393,7 @@ void clientInit (thread_data *td) {
 }
 
 void clientDestroy (thread_data *td) {
+    // Print our end of transmission logs
     if(params[0] != 1) {
 	printf("Last packet seq# received: %d\n", td->lastSequenceNum);
     }
