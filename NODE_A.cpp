@@ -26,7 +26,7 @@ typedef struct {
     time_t startTime;
     int numPackets;
     int droppedPackets;
-    int fileSize;
+    double fileSize;
 } thread_data;
 
 // Send completed frame to client
@@ -42,6 +42,7 @@ void serverSend (char *frame, size_t fSize) {
 void *serverListen (void *data) {
 
     int i;
+    int expectedAck = 0;
     char buffer[HLEN];
     thread_data *td;
     swp_hdr hdr;
@@ -59,16 +60,18 @@ void *serverListen (void *data) {
             
             if (hdr.flags == FLAG_ACK_VALID) {
                 #ifdef SaW
-                // Stop & Wait
+		// Verify ACKs for Stop and Wait
                 if(hdr.seqNum == td->ss.LFQ) {
+	            // Flip the ACK bit for the last sent frame
                     td->ss.sendQ[td->ss.LFQ].ack = 1;
                     printf("Ack %i recieved\n", hdr.seqNum);
+                    // Unlock the mutex to allow our writer to write again
                     pthread_mutex_unlock(&td->slide);
                 }
                 #else
-                // Selective Repeat
                 pthread_mutex_lock(&td->slide);
                 if (swpInWindow(hdr.seqNum, td->ss.FFQ, td->ss.LFQ)) {
+                            
                     i = 0;
                     // Search for sequence number
                     while (hdr.seqNum != td->ss.sendQ[i].msg[0]) {
@@ -80,8 +83,49 @@ void *serverListen (void *data) {
                         // Get rid of error
                         td->ss.sendQ[i].errors ^= ERROR_DROP_ACK;
                     } else {
+                        #ifdef GBN
+                        // Check if the ACK sent by client is out of order, and unACKed
+                        if(expectedAck != hdr.seqNum && !td->ss.sendQ[i].ack) {
+                            printf("Ack %i received out of order. ACKing all packets with a lower sequence number.\n", hdr.seqNum);
+                            int k = 0;
+                            int j = hdr.seqNum;	
+                            // Deal with wrap around cases
+                            if ((hdr.seqNum - expectedAck) < 0) {
+                                k = (SN - expectedAck) + hdr.seqNum;
+                            // Normal cases
+                            } else {
+                                k = hdr.seqNum - expectedAck;
+                            }
+                            // ACK any frames in the ACK below the ACK
+                            // sent by the client
+                            for(int i = k + 1; i > 0; i--) {
+                                if(!td->ss.sendQ[j].ack) {
+                                    printf("Acked %i\n", j);
+                                    td->ss.sendQ[j].ack = 1;
+                                }	
+                                j--; 
+                                if(j == -1) {
+                                    j = SN - 1;	
+                                }
+                            }
+                            // Update our next expected ACK
+                            expectedAck = (++hdr.seqNum) % SN;
+                        } else {
+                            // This is a weird check that is necessary for catching
+                            // A race condition for when two ACK's for the same value
+                            // are sent back by the client
+                            if(expectedAck == hdr.seqNum && !td->ss.sendQ[i].ack) {
+                                // ACK and increment expectedACK.
+                                printf("Ack %i recieved\n", hdr.seqNum);
+                                td->ss.sendQ[i].ack = 1;
+                                expectedAck = (++expectedAck) % SN;
+                            }
+                        }
+                        #else
+                        // Selective Repeat
                         printf("Ack %i recieved\n", hdr.seqNum);
                         td->ss.sendQ[i].ack = 1;
+                        #endif
                     } 
                 }
                 pthread_mutex_unlock(&td->slide);
@@ -198,7 +242,8 @@ void *serverTimer (void *data) {
 }
 
 void *serverWriter (void *data) {
-    
+
+    int k;    
     int i;
     int chkErrI, dPackErrI, dAckErrI;
     FILE *fp;
@@ -208,6 +253,7 @@ void *serverWriter (void *data) {
     uint64 fSize, fIter;
     char buffer[FULL], cont[MLEN];
 
+    swp_hdr tmpHdr;
     td = (thread_data *) data; 
     fp = getFname("rb", &buffer[0]);
     fSize = fileSize(fp);
@@ -335,8 +381,35 @@ void *serverWriter (void *data) {
         memset(&buffer[0], 0, FULL);
         memset(&cont[0], 0, MLEN);
         i++;
-        #endif
+	    
+        // Print current window size
+        if(i < 8) {	
+            printf("Current window = [0, 1, 2, 3, 4, 5, 6, 7]\n");	
+        } else {
+            printf("Current window = [");
+            // Pull last frame value
+            int t = td->ss.LFQ - SWS;
+            // Find if we need to wrap around due our window going from the end
+            // of SN to the start.
+            if(t < 0) {
+                t = SN + t;
+            }
+            // Print our values, make sure to check for 
+            // wrapping and deal with it
+            for(int k = 0; k < SWS - 1; k++) {
+                printf("%d,", t);
+                t++;
+                if(t == SN) {
+                    t = 0;	
+                }
+            }
+            if(t == SN) {
+                t = 0;
+            }
 
+            printf("%d]\n", t);
+        }
+        #endif
     }
 
     fclose(fp);
@@ -370,7 +443,6 @@ void serverDestroy (thread_data *td) {
     printf("Total elapsed time: %lf seconds\n", elapsedTime);
     printf("Total throughput (Mbps): %lf\n", (((double)((td->fileSize + (td->droppedPackets * FULL)) * 8) / elapsedTime) / 1000000));
     printf("Effective throughput (Mbps): %lf\n", (((double)(td->fileSize * 8) / elapsedTime) / 1000000));
-
 }
 
 
@@ -445,7 +517,7 @@ void menu(thread_data *td) {
     printf("Client (%s) connected\n", inet_ntoa(cliaddr.sin_addr));
 
     int t, i;
-    char *p, buffer[MLEN];
+    char *p, buffer[FULL];
 
     // Find if user wants to define tOut, and if so set it.
     printf("\nDo you wish to set a timeout, or use a ping-calculated timeout?\n");
@@ -547,6 +619,8 @@ void serverInit (thread_data *td) {
     td->err.dAckSize = 0;
     td->err.chkSize = 0;
 
+    td->droppedPackets = 0;
+	
     // Creating socket file descriptor 
     if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
         perror("socket creation failed"); 

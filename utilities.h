@@ -51,9 +51,9 @@
 //#define SERVER "10.35.195.49"   // THING 3
 
 // Set Protocol
-#define SaW
+//#define SaW
 //#define GBN
-//#define SR
+#define SR
 
 #define ERRORCHK(a,b) a == (b & a)
 
