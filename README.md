@@ -1,13 +1,13 @@
 # CS 462 - Sliding Window Protocols
 
 	This project is an implementation of three different network protocol for the realiable transfer of packets between
-	a server and a client. The project was split into several phases which included the following.
+	a server and a client. The project was split into several phases which included the following:
 
-	1. Establishing reliable communication between two processes, e.g., A and B, with error-handling, timeouts, and file writing using multithreading.
-	2. Implementation of the following sliding window protocols, Stop and Wait(SaW), Go-Back-N(GBN), and Selective Repeat(SR).
-	3. Creating a command line interface to allow users the ability to manipulate different aspects of the transfer such as the timeout used, the protocol used, and error scenarios.
-	4. Creating code to inject various errors during transfer for the purposes of testing the realibility of the transmission such as the loss of ACKs, loss of packets, and failure of checksums.
-	5. Verificaiton of the realibility of the code by running various tests using the aforementioned error scenarios and various sized files ranging from several megabytes to several gigabytes.
+	* Establishing reliable communication between two processes, e.g., A and B, with error-handling, timeouts, and file writing using multithreading.
+	* Implementation of the following sliding window protocols, Stop and Wait(SaW), Go-Back-N(GBN), and Selective Repeat(SR).
+	* Creating a command line interface to allow users the ability to manipulate different aspects of the transfer such as the timeout used, the protocol used, and error scenarios.
+	* Creating code to inject various errors during transfer for the purposes of testing the realibility of the transmission such as the loss of ACKs, loss of packets, and failure of checksums.
+	* Verificaiton of the realibility of the code by running various tests using the aforementioned error scenarios and various sized files ranging from several megabytes to several gigabytes.
 
 ## Getting Started
 
