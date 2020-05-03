@@ -1,5 +1,6 @@
 # CS 462 - Sliding Window Protocols
 
+## Introduction
 	This project is an implementation of three different network protocol for the realiable transfer of packets between
 	a server and a client. The project was split into several phases which included the following:
 
