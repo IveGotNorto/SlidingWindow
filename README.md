@@ -136,15 +136,11 @@ running the server.
 ./NODE_B
 ```
    
-Successfully connecting to the server from the client will result in something similar to the following to display.
-
-<br>
+Successfully connecting to the server from the client will result in something similar to the following to display:
 
 ![alt tag](https://i.imgur.com/G1IG8Ws.png)
    
-If the client fails to connect to the server something similar to the following will be display.
-
-<br>
+If the client fails to connect to the server something similar to the following will be display:
 
 ![alt tag](https://i.imgur.com/vwQcaxb.png)
    
@@ -158,8 +154,7 @@ file you wish to transfer from the server to the client.
 ## Example Run
 
 The following .gif is a sample run of the program sending a small file using the Go-Back-N protocol from thing1 to thing2.
-
-<br>
+**NOTE: The below .gif can be clicked to increase the size**
 
 ![alt tag](https://i.imgur.com/qLqP2vM.gif)
 
