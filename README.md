@@ -1,24 +1,31 @@
 # CS 462 - Sliding Window Protocols
 
 ## Introduction
-	This project is an implementation of three different network protocol for the realiable transfer of packets between
-	a server and a client. The project was split into several phases which included the following:
+	This project is an implementation of three different network protocol for the realiable 
+	transfer of packets between a server and a client. The project was split into several 
+	phases which included the following:
 
-	* Establishing reliable communication between two processes, e.g., A and B, with error-handling, timeouts, and file writing using multithreading.
-	* Implementation of the following sliding window protocols, Stop and Wait(SaW), Go-Back-N(GBN), and Selective Repeat(SR).
-	* Creating a command line interface to allow users the ability to manipulate different aspects of the transfer such as the timeout used, the protocol used, and error scenarios.
-	* Creating code to inject various errors during transfer for the purposes of testing the realibility of the transmission such as the loss of ACKs, loss of packets, and failure of checksums.
-	* Verificaiton of the realibility of the code by running various tests using the aforementioned error scenarios and various sized files ranging from several megabytes to several gigabytes.
+	* Establishing reliable communication between two processes, e.g., A and B, with error-handling, timeouts, 
+	and file writing using multithreading.
+	* Implementation of the following sliding window protocols, Stop and Wait(SaW), Go-Back-N(GBN), 
+	and Selective Repeat(SR).
+	* Creating a command line interface to allow users the ability to manipulate different aspects of the 
+	transfer such as the timeout used, the protocol used, and error scenarios.
+	* Creating code to inject various errors during transfer for the purposes of testing the realibility 
+	of the transmission such as the loss of ACKs, loss of packets, and failure of checksums.
+	* Verificaiton of the realibility of the code by running various tests using the aforementioned error 
+	scenarios and various sized files ranging from several megabytes to several gigabytes.
 
 ## Getting Started
 
-	These instructions will get you a copy of the project up and running on the thing servers ran by the Compuer Science
-	department at the University of Wisconsin - Eau Claire (UWEC). 
+	These instructions will get you a copy of the project up and running on the thing servers ran 
+	by the Compuer Science department at the University of Wisconsin - Eau Claire (UWEC). 
 
 ### Prerequisites
 
 	A copy of the project must be uploaded to the thing servers. This can be achieved through FTPing into one
-	of the thing servers via your UWEC user account or by accessing the drive via a University computer or the virtual lab.
+	of the thing servers via your UWEC user account or by accessing the drive via a University computer or 
+	the virtual lab.
 
 ### Configuration, Compiling, and Execution
 
