@@ -131,7 +131,7 @@ void *clientListener (void *data) {
                         
                         if(hdr.seqNum == seqExp) {
                             // Copy frame data to queue
-                            memcpy(td->ss.recvQ[0].msg, &buffer[sizeof(swp_hdr)], params[1]);
+                            memcpy(td->ss.recvQ[0].msg, &buffer[HLEN], MLEN);
                             // Pull the frames header info off
                             td->ss.recvQ[0].size = ntohs(hdr.size);
                             td->ss.recvQ[0].ackNum = hdr.seqNum;
@@ -247,13 +247,13 @@ void *clientWriter (void *data) {
     thread_data *td;
     char buffer[MLEN];
 
-    fp = fopen("/tmp/WoopTest.txt","wb");
+    fp = fopen("/tmp/testFile.txt","wb");
     td = (thread_data *) data;
     end = 0;
     i = 0;
 
     while (!end) {
-        #ifdef SaW
+        #if defined(SaW) || defined(GBN)
         // Wait a message to reach the front of queue
         if (td->ss.recvQ[0].valid) {
             
@@ -269,6 +269,7 @@ void *clientWriter (void *data) {
         #else
         // Wait for valid slot to open
         if (td->ss.recvQ[0].valid) {
+	    printf("In the writer\n");
             pthread_mutex_lock(&td->slide);
             if (fwrite(td->ss.recvQ[0].msg, td->ss.recvQ[0].size, 1, fp) != 1) {
                 perror("write: ");
