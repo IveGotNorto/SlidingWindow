@@ -21,13 +21,13 @@ scenarios and various sized files ranging from several megabytes to several giga
 These instructions will get you a copy of the project up and running on the thing servers ran 
 by the Compuer Science department at the University of Wisconsin - Eau Claire (UWEC). 
 
-### Prerequisites
+## Prerequisites
 
 A copy of the project must be uploaded to the thing servers. This can be achieved through FTPing into one
 of the thing servers via your UWEC user account or by accessing the drive via a University computer or 
 the virtual lab.
 
-### Configuration, Compiling, and Execution
+## Configuration, Compiling, and Execution
 
 The following is step by step instructions on the configuraiton and execution of the program. 
 
@@ -38,7 +38,7 @@ The following is step by step instructions on the configuraiton and execution of
 the server code on any of the other thing servers will not work and the program will not run. Instrctuions
 on how to adjust the thing that will act as the server can be found below.**
 		   
-#### Adjusting the thing that acts as the server.
+### Adjusting the thing that acts as the server.
 	
 In order to adjust the thing that will act as the server the following lines of code must be altered.
 This code can be found in the file titled "Utilities.h". In order to adjust the server used the #define for 
@@ -61,7 +61,7 @@ If you instead wish to use Thing 0 as their server the code in utilities.h must 
 //#define SERVER "10.35.195.49"   // THING 3
 ```
 	
-#### Adjusting the protocol used to perform transmissions.
+### Adjusting the protocol used to perform transmissions.
 	
 In order to adjust the protocol that will be used during network transmissions the following 
 lines of code must be altered.
@@ -83,7 +83,7 @@ If the user instead wishes to use the protocol Go-Back-N (GBN) instead the code 
 //#define SR
 ```
 	
-Some of the other parameters that can be tweaked can be found in the following section:
+Some of the other parameters that can be tweaked can be found in the following section of the utilities.h file:
 	
 ```
 // Misc. Tweaks
@@ -122,7 +122,9 @@ bind: Cannot assign requested address
 ```
    
 After the server program is running you will be greeted with a similar screen to the following.
-   
+
+<br>   
+
 ![alt tag](https://i.imgur.com/nMQIVa3.png)
    
 This indicates that the server has been successfully setup and that it is now waiting for the client to connect.
@@ -135,11 +137,15 @@ running the server.
 ```
    
 Successfully connecting to the server from the client will result in something similar to the following to display.
-   
+
+<br>
+
 ![alt tag](https://i.imgur.com/G1IG8Ws.png)
    
 If the client fails to connect to the server something similar to the following will be display.
-   
+
+<br>
+
 ![alt tag](https://i.imgur.com/vwQcaxb.png)
    
 If this occurs, terminate the server using the Ctrl + C key combination and go back to step 3 and repeat.
@@ -149,9 +155,11 @@ will include things such as the length of the timeout, if you wish to introduce 
 file you wish to transfer from the server to the client.
 
 
-### Example Run
+## Example Run
 
 The following .gif is a sample run of the program sending a small file using the Go-Back-N protocol from thing1 to thing2.
+
+<br>
 
 ![alt tag](https://i.imgur.com/qLqP2vM.gif)
 
