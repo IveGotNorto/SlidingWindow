@@ -35,7 +35,7 @@ The following is step by step instructions on the configuration, compilation, an
 1. Before compiling or executing the code the configuration of how it will run can be tweaked to
    adjust various parameters such as which thing server will act as the server, the protocol used, etc.
    
-**NOTE: As it stands currently the application is configured such that the thing1 acts as the server. Running
+**NOTE: As it stands currently the application is configured such that thing1 acts as the server. Running
 the server code on any of the other thing servers will not work and the program will not run. Instructions
 on how to adjust the thing that will act as the server can be found below.**
 		   
