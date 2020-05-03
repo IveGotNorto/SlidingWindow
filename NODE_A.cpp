@@ -81,7 +81,7 @@ void *serverListen (void *data) {
                     // Check for dropping ack
                     if ( ERRORCHK( ERROR_DROP_ACK, td->ss.sendQ[i].errors )) {
                         // Get rid of error
-                        td->ss.sendQ[i].errors ^= ERROR_DROP_ACK;
+                        td->ss.sendQ[i].errors = 0;
                     } else {
                         #ifdef GBN
                         // Check if the ACK sent by client is out of order, and unACKed
@@ -98,15 +98,22 @@ void *serverListen (void *data) {
                             }
                             // ACK any frames in the ACK below the ACK
                             // sent by the client
-                            for(int i = k + 1; i > 0; i--) {
-                                if(!td->ss.sendQ[j].ack) {
+                            for(int p = k + 1; p > 0; p--) {
+				// Find the next frame to ACK using the next lowest
+				// sequence number
+                    		while (j != td->ss.sendQ[i].msg[0]) {
+                        	    i = (++i) % SWS;
+                    		}
+
+				 if(!td->ss.sendQ[i].ack) {
                                     printf("Acked %i\n", j);
-                                    td->ss.sendQ[j].ack = 1;
+                                    td->ss.sendQ[i].ack = 1;
                                 }	
                                 j--; 
                                 if(j == -1) {
                                     j = SN - 1;	
                                 }
+				
                             }
                             // Update our next expected ACK
                             expectedAck = (++hdr.seqNum) % SN;
@@ -384,7 +391,7 @@ void *serverWriter (void *data) {
 	    
         // Print current window size
         if(i < 8) {	
-            printf("Current window = [0, 1, 2, 3, 4, 5, 6, 7]\n");	
+            printf("Current window = [0,1,2,3,4,5,6,7]\n");	
         } else {
             printf("Current window = [");
             // Pull last frame value
