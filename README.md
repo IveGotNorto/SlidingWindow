@@ -1,7 +1,7 @@
 # CS 462 - Sliding Window Protocols
 
 	This project is an implementation of three different network protocol for the realiable transfer of packets between
-	a server and a client. The project was split into several phases which included the following:
+	a server and a client. The project was split into several phases which included the following.
 
 	1. Establishing reliable communication between two processes, e.g., A and B, with error-handling, timeouts, and file writing using multithreading.
 	2. Implementation of the following sliding window protocols, Stop and Wait(SaW), Go-Back-N(GBN), and Selective Repeat(SR).
