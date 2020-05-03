@@ -153,7 +153,8 @@ file you wish to transfer from the server to the client.
 
 ## Example Run
 
-The following .gif is a sample run of the program sending a small file using the Go-Back-N protocol from thing1 to thing2.
+The following .gif is a sample run of the program sending a small file using the Go-Back-N protocol from thing1 to thing0.
+<br>
 **NOTE: The below .gif can be clicked to increase the size**
 
 ![alt tag](https://i.imgur.com/qLqP2vM.gif)
