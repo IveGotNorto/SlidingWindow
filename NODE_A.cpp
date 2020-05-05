@@ -174,37 +174,6 @@ void *serverTimer (void *data) {
     
     while (td->conn) {
 
-        #ifndef SaW
-        // Check if a slide can happen
-        if (td->ss.sendQ[0].ack) {
-            pthread_mutex_lock(&td->slide);
-            for (int c = 0; c < SWS - 1; c++) {
-                memcpy(td->ss.sendQ[c].msg, td->ss.sendQ[c+1].msg, FULL);
-                td->ss.sendQ[c].start = td->ss.sendQ[c+1].start;
-                td->ss.sendQ[c].size = td->ss.sendQ[c+1].size;
-                td->ss.sendQ[c].ack = td->ss.sendQ[c+1].ack;
-                td->ss.sendQ[c].errors = td->ss.sendQ[c+1].errors;
-            }
-
-            // Reset values of last array position
-            memset(td->ss.sendQ[SWS-1].msg, 0, FULL);
-            td->ss.sendQ[SWS-1].start.tv_sec = 0;
-            td->ss.sendQ[SWS-1].start.tv_usec = 0;
-            td->ss.sendQ[SWS-1].size = 0;
-            td->ss.sendQ[SWS-1].ack = 0;
-            td->ss.sendQ[SWS-1].errors = 0;
-
-            // Update the Frame Index
-            td->ss.FI--;             
-            // Update the First Frame Queued
-            td->ss.FFQ = (++td->ss.FFQ) % SN;
-
-            pthread_mutex_unlock(&td->slide);
-            // Signal writer there's a spot open
-            sem_post(&td->empty);
-        }
-        #endif
-
         // See if there is a valid frame in the window
         if (!td->ss.sendQ[i].ack &&
             (td->ss.sendQ[i].start.tv_sec != 0 &&
@@ -276,6 +245,7 @@ void *serverWriter (void *data) {
 
     while (i <= fIter && td->conn) {
         #if defined SaW
+	pthread_mutex_lock(&td->slide);
         // Check if the last frame queue was a 1 or 0
         if(td->ss.LFQ || i == 0) {
             td->ss.LFQ = 0;

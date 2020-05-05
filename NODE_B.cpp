@@ -46,7 +46,9 @@ void *clientListener (void *data) {
 
             // Get rid of retrasmission flag
             if ( ERRORCHK(FLAG_RT_DATA, buffer[1])) {
-                td->droppedPackets += 1;
+				#ifdef SR
+                    td->droppedPackets += 1;
+				#endif
                 buffer[1] ^= FLAG_RT_DATA;
             }
 
