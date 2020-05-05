@@ -33,11 +33,12 @@
 // Frame Flag Definitions
 #define FLAG_ACK_VALID 0x1
 #define FLAG_HAS_DATA 0x2
-#define FLAG_END_DATA 0x3
-#define FLAG_CLIENT_JOIN 0x4
-#define FLAG_SERVER_RTT 0x5
-#define FLAG_CLIENT_EXIT 0x6
-#define FLAG_CLIENT_RTT 0x7
+#define FLAG_END_DATA 0x4
+#define FLAG_CLIENT_JOIN 0x8
+#define FLAG_SERVER_RTT 0x10
+#define FLAG_CLIENT_EXIT 0x20
+#define FLAG_CLIENT_RTT 0x40
+#define FLAG_RT_DATA 0x80
 
 // Error Flag Definitions
 #define ERROR_DROP_PACK 0x1

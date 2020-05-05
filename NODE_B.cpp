@@ -33,8 +33,6 @@ void *clientListener (void *data) {
     thread_data *td;
     swp_hdr hdr;
     td = (thread_data *) data;
-    td->droppedPackets = 0;
-    td->numPackets = 0;
 
     while (1) {
 
@@ -45,6 +43,12 @@ void *clientListener (void *data) {
                      MSG_WAITALL, ( struct sockaddr *) &servaddr,
                      &len) != -1
             ) {
+
+            // Get rid of retrasmission flag
+            if ( ERRORCHK(FLAG_RT_DATA, buffer[1])) {
+                td->droppedPackets += 1;
+                buffer[1] ^= FLAG_RT_DATA;
+            }
 
             // Strip off header
             memcpy(&hdr, &buffer[0], sizeof(swp_hdr));
@@ -205,6 +209,7 @@ void *clientListener (void *data) {
                                 td->ss.recvQ[iFrame].flags = hdr.flags;
                                 td->ss.recvQ[iFrame].valid = 1;
                                 td->numPackets = td->numPackets + 1;
+
                                 tmp[0] = hdr.seqNum;
                                 tmp[1] = FLAG_ACK_VALID;
                                 clientSend(&tmp[0]);
@@ -213,15 +218,15 @@ void *clientListener (void *data) {
                             }
 
                         } else if (hdr.seqNum < td->ss.FFQ ||
-                                   hdr.seqNum > td->ss.LFQ) {
-                            // Ack lost
+                                   hdr.seqNum > (td->ss.LFQ + RWS)) {
                             tmp[0] = hdr.seqNum;
                             tmp[1] = FLAG_ACK_VALID;
                             clientSend(&tmp[0]);
                             printf("Ack %i sent\n", hdr.seqNum);
-
                         }
                         pthread_mutex_unlock(&td->slide);
+                        // Let the writer write
+                        while(td->ss.recvQ[0].valid);
                         #endif
                     }
 
@@ -272,7 +277,6 @@ void *clientWriter (void *data) {
         #else
         // Wait for valid slot to open
         if (td->ss.recvQ[0].valid) {
-	    printf("In the writer\n");
             pthread_mutex_lock(&td->slide);
             if (fwrite(td->ss.recvQ[0].msg, td->ss.recvQ[0].size, 1, fp) != 1) {
                 perror("write: ");
@@ -298,7 +302,7 @@ void *clientWriter (void *data) {
                 // Update window size
                 td->ss.FFQ = (++td->ss.FFQ) % SN;
                 td->ss.LFQ = (++td->ss.LFQ) % SN;
-
+                // Set acknum for last frame
                 td->ss.recvQ[RWS-1].ackNum = td->ss.LFQ;
             }
             pthread_mutex_unlock(&td->slide);
@@ -333,7 +337,7 @@ void clientComm (thread_data *td, uint8 flag) {
     } else {
         printf("Exiting server");
         while (td->conn != 0 &&
-               att < ATTEMPTS) {
+               att < (ATTEMPTS/2)) {
             clientSend(&tmp[0]);
             printf("...%i", ++att);
             sleep(1);
@@ -351,6 +355,10 @@ void clientInit (thread_data *td) {
     // Initially set upper bound
     // for window
     td->ss.LFQ = RWS - 1;
+
+    td->droppedPackets = 0;
+    td->numPackets = 0;
+
     len = sizeof(servaddr);
 
     // Creating socket file descriptor 
@@ -419,14 +427,10 @@ int main (void) {
         pthread_join(threads[0], NULL);
         clientComm(&td, FLAG_CLIENT_EXIT);
 
-        if (td.conn == 0) {
-            printf("...exited.\n"); 
-            printf("Last packet seq# received: %d\n", td.lastSequenceNum);
-            printf("Number of original packets received: %d\n", td.numPackets);
-            printf("Number of retransmitted packets received: %d\n", td.droppedPackets);
-        } else {
-            printf("...failed.\n");
-        }
+        printf("...exited.\n"); 
+        printf("Last packet seq# received: %d\n", td.lastSequenceNum);
+        printf("Number of original packets received: %d\n", td.numPackets);
+        printf("Number of retransmitted packets received: %d\n", td.droppedPackets);
 
     } else {
         printf("...failed.\n");

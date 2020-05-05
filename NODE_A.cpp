@@ -215,6 +215,7 @@ void *serverTimer (void *data) {
             // Timeout occurs here 
             if (timeDiff(td->ss.sendQ[i].start, tmp) > tOut) {
                 td->droppedPackets = td->droppedPackets + 1;
+                td->ss.sendQ[i].msg[1] |= FLAG_RT_DATA;
                 if ( ERRORCHK( ERROR_BAD_CHK, td->ss.sendQ[i].errors )) {
                     pthread_mutex_lock(&td->send);
                     printf("Packet %i ***** Timed Out *****\n", td->ss.sendQ[i].msg[0]);
@@ -272,8 +273,6 @@ void *serverWriter (void *data) {
     dPackErrI = 0;
     dAckErrI = 0;
     i = 0;
-
-    memset(&buffer[0], 0, FULL);
 
     while (i <= fIter && td->conn) {
         #if defined SaW
@@ -421,8 +420,8 @@ void serverDestroy (thread_data *td) {
     printf("Number of original packets sent: %d\n", td->numPackets);
     printf("Number of retransmitted packets: %d\n", td->droppedPackets);
     printf("Total elapsed time: %lf seconds\n", elapsedTime);
-    printf("Total throughput (Mbps): %lf\n", (((double)((td->fileSize + (td->droppedPackets * FULL)) * 8) / elapsedTime) / 1000000));
-    printf("Effective throughput (Mbps): %lf\n", (((double)(td->fileSize * 8) / elapsedTime) / 1000000));
+    printf("Total throughput (Mbps): %G\n", (((double)((td->fileSize + (td->droppedPackets * FULL)) * 8) / elapsedTime) / 1000000));
+    printf("Effective throughput (Mbps): %G\n", (((double)(td->fileSize * 8) / elapsedTime) / 1000000));
 }
 
 
@@ -430,7 +429,7 @@ int calculateCustomTimeout(thread_data *td) {
     // Create variables necessary for calculation and timing
     float t = 0.125;
     struct timeval start, end, check;
-    double rttm, rtts = 0;
+    long double rttm, rtts = 0;
    
     // Create our test packet to send
     char testPacket[FULL];
