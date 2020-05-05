@@ -53,3 +53,17 @@ int swpInWindow (uint8 seqNum, uint8 min, uint8 max) {
     return (min <= seqNum) && (seqNum <= max) ? 1 : 0;
 }
 
+
+void printWindow (uint32 low, uint32 len) {
+
+    int i = 0;
+    int upper = len - 1;
+    printf("Current window: ["); 
+    while (i < upper) {
+        printf("%i,", (low + i) % SN);
+        i++;
+    }
+    printf("%i]\n", (low + i) % SN);
+
+}
+

@@ -185,11 +185,14 @@ void *clientListener (void *data) {
                                iFrame = (++iFrame) % RWS;
                             }
 
+                            printWindow(td->ss.FFQ, RWS);
+
                             // Queue member hasnt been validated yet
                             if(!(td->ss.recvQ[iFrame].valid)) {
-                                
+                                pthread_mutex_unlock(&td->slide);
                                 // Wait for space to put frame
                                 sem_wait(&td->full);  
+                                pthread_mutex_lock(&td->slide);
                                 // Copy frame data to queue
                                 memcpy(td->ss.recvQ[iFrame].msg, &buffer[HLEN], MLEN);
 

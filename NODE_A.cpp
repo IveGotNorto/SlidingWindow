@@ -384,38 +384,11 @@ void *serverWriter (void *data) {
         ++td->ss.FI;    // Frame Index will never go above SWS - 1 
 
         pthread_mutex_unlock(&td->slide);
-
-        memset(&buffer[0], 0, FULL);
         memset(&cont[0], 0, MLEN);
         i++;
-	    
-        // Print current window size
-        if(i < 8) {	
-            printf("Current window = [0,1,2,3,4,5,6,7]\n");	
-        } else {
-            printf("Current window = [");
-            // Pull last frame value
-            int t = td->ss.LFQ - SWS;
-            // Find if we need to wrap around due our window going from the end
-            // of SN to the start.
-            if(t < 0) {
-                t = SN + t;
-            }
-            // Print our values, make sure to check for 
-            // wrapping and deal with it
-            for(int k = 0; k < SWS - 1; k++) {
-                printf("%d,", t);
-                t++;
-                if(t == SN) {
-                    t = 0;	
-                }
-            }
-            if(t == SN) {
-                t = 0;
-            }
 
-            printf("%d]\n", t);
-        }
+        printWindow(td->ss.FFQ, SWS);
+	    
         #endif
     }
 

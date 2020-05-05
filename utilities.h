@@ -120,4 +120,6 @@ unsigned long timeDiff (timeout before, timeout after);
 
 int swpInWindow (uint8 seqNum, uint8 min, uint8 max);
 
+void printWindow (uint32 low, uint32 len);
+
 #endif
