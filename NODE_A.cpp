@@ -507,7 +507,42 @@ int calculateCustomTimeout(thread_data *td) {
 	}
 	td->rttBool = 0;
     }
+
+    if (rtts == 0) {
+        rtts = 500;
+    }
     return (int) rtts * 2;
+}
+
+
+void printErrors (errors err) {
+
+    int i = 0;
+
+    printf("\n");
+    if (err.dAckSize) {
+        printf("Dropping Acks: {");
+        while (i < (err.dAckSize - 1)) {
+            printf("%i,", err.dAck[i++]);
+        }
+        printf("%i}\n", err.dAck[i]);
+    } 
+    if (err.chkSize) {
+        i = 0;
+        printf("Obfuscating Checksums: {");
+        while (i < (err.chkSize - 1)) {
+            printf("%i,", err.chk[i++]);
+        }
+        printf("%i}\n", err.chk[i]);
+    } 
+    if (err.dPackSize) {
+        i = 0;
+        printf("Dropping Packets: {");
+        while (i < (err.dPackSize - 1)) {
+            printf("%i,", err.dPack[i++]);
+        }
+        printf("%i}\n", err.dPack[i]);
+    }
 }
 
 void menu(thread_data *td) {
@@ -523,7 +558,7 @@ void menu(thread_data *td) {
 
     printf("Client (%s) connected\n", inet_ntoa(cliaddr.sin_addr));
 
-    int t, i;
+    int t, i, *c, start, total;
     char *p, buffer[FULL];
 
     // Find if user wants to define tOut, and if so set it.
@@ -564,38 +599,65 @@ void menu(thread_data *td) {
             printf("Input: ");
 
             scanf("%i", &t);
-
-            if (t == 4) {
-                // Set randomness
-            }
+            srand(time(NULL));
 
             if (t > 0 && t < 5) {
-                printf("\nEnter sequence numbers(,): ");
-                if (t == 1) {
-                    memset(&(td->err.dPack), 0, SN);
-                    scanf("%s", &buffer[0]);
-                } else if (t == 2) {
-                    memset(&(td->err.chk), 0, SN);
-                    scanf("%s", &buffer[0]);
-                } else if (t == 3) {
-                    memset(&(td->err.dAck), 0, SN);
-                    scanf("%s", &buffer[0]);
-                }
+                if (t == 4) {
 
-                i = 0;
-                p = strtok(buffer,"- ,");
+                    i = 0;
+                    c = NULL;
+                    t = (rand() % 3) + 1;
+                    srand(time(NULL));
+                    total = start = rand() % SN;                      
+                    
+                    // When start is zero
+                    if (!start) {start = 1;}
 
-                while (p != NULL) {
-                    buffer[i] = atoi(p);        
                     if (t == 1) {
-                        td->err.dPack[i] = buffer[i];
+                        memset(&(td->err.dPack), 0, SN);
+                        c = &td->err.dPack[0];
                     } else if (t == 2) {
-                        td->err.chk[i] = buffer[i];
+                        memset(&(td->err.chk), 0, SN);
+                        c = &td->err.chk[0];
                     } else if (t == 3) {
-                        td->err.dAck[i] = buffer[i];
+                        memset(&(td->err.dAck), 0, SN);
+                        c = &td->err.dAck[0];
                     }
-                    p = strtok(NULL,"- ,");
-                    i++;
+
+                    while (total < SN) {
+                        c[i++] = total;                        
+                        total += start; 
+                    }
+
+                } else {
+
+                    printf("\nEnter sequence numbers(0-%i): ", SN - 1);
+                    if (t == 1) {
+                        memset(&(td->err.dPack), 0, SN);
+                        scanf("%s", &buffer[0]);
+                    } else if (t == 2) {
+                        memset(&(td->err.chk), 0, SN);
+                        scanf("%s", &buffer[0]);
+                    } else if (t == 3) {
+                        memset(&(td->err.dAck), 0, SN);
+                        scanf("%s", &buffer[0]);
+                    } 
+
+                    i = 0;
+
+                    p = strtok(buffer,"- ,");
+                    while (p != NULL) {
+                        buffer[i] = atoi(p);        
+                        if (t == 1) {
+                            td->err.dPack[i] = buffer[i];
+                        } else if (t == 2) {
+                            td->err.chk[i] = buffer[i];
+                        } else if (t == 3) {
+                            td->err.dAck[i] = buffer[i];
+                        }
+                        p = strtok(NULL,"- ,");
+                        i++;
+                    }
                 }
 
                 if (t == 1) {
@@ -606,6 +668,7 @@ void menu(thread_data *td) {
                     td->err.dAckSize = i;
                 } 
             }
+            printErrors(td->err);           
         }
     }
 }
